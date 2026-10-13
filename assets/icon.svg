@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Model Menu Organizer">
+  <!-- 三条横线（菜单）＋ 一颗星（置顶）＋ 一个筛孔（整理），取"整理模型菜单"之意。 -->
+  <g fill="none" stroke="#4d6bfe" stroke-width="2.2" stroke-linecap="round">
+    <path d="M5 8h14M5 16h9M5 24h14"/>
+  </g>
+  <path d="M23.2 17.4l1.7 3.5 3.8.5-2.8 2.7.7 3.8-3.4-1.8-3.4 1.8.7-3.8-2.8-2.7 3.8-.5z"
+        fill="#4d6bfe"/>
+</svg>

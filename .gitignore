@@ -1,0 +1,11 @@
+# 依赖与本地环境
+node_modules/
+pnpm-lock.yaml
+.DS_Store
+.idea/
+.vscode/
+
+# 构建产物（发布走 GitHub 源码，产物不入库）
+*.tgz
+*.zip
+dist/

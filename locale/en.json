@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Model Menu Organizer",
+    "description": "Organizes the composer model picker: fold by provider, slide out a model panel, plus pins, recents, per-provider search, aliases and hiding. Client-side only; preferences stay in this browser."
+  }
+}

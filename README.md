@@ -1,0 +1,325 @@
+# dsh-model-organizer
+
+**模型菜单别再一条道排到底。** 给 DeepSeek Harness（DSH）的模型选择菜单加上**整理**能力：
+按来源折叠、悬浮/点击滑出模型面板，再把常用模型**置顶**、**最近**用过的排前面，
+还能在面板里**搜索**、给模型起**别名**、把用不上的模型**藏起来**。
+
+> A DSH client plugin that organizes the composer model picker: fold it by provider,
+> slide out a model panel on hover/click, and add favorites, recents, search,
+> aliases and hiding.
+
+### 0.6.1：轻量置顶样式
+
+- 已置顶模型使用小尺寸实心星标，取消常驻蓝色方块背景；悬停时仍有按钮反馈。
+- 当前模型的选中背景覆盖完整一行，与星标、勾选标记统一对齐。
+- 仅修改插件样式与行属性，置顶行为和已有记录保持不变。
+- 140 项测试通过；已在本机 DSH 总览浮框确认实际显示效果。
+
+### 0.6.0：偏好与状态可靠性
+
+- 偏好使用宿主目录的厂商 ID 与模型 ID；显示名称、本地化与费用后缀变化不影响记录。
+- 旧记录按唯一对应关系安全迁移，保留置顶/最近的顺序、别名、隐藏与字号；歧义或已下架记录保留，不猜测、不删除。
+- 原生模型的可用状态、选中项和名称变化会刷新浮框；编辑中的文本、焦点和光标保留。
+- 切换总览、结束整理或关闭浮框后清理编辑状态，Esc 正常清空当前搜索。
+- 厂商浮框的隐藏计数只统计当前厂商，总览统计当前目录内的全部隐藏模型。
+
+### 0.5.1：厂商 → 模型，两层搜索
+
+修复厂商搜索缩短菜单后位置悬空：折叠、筛选、清空与窗口尺寸变化时，按实际高度重新贴靠模型选择按钮；卸载时恢复宿主定位。
+
+- 只保留悬浮展开，点击厂商也立即打开；移除了「悬浮 / 面板」切换和双击切换。
+- 原菜单搜索框改为「搜索厂商」，只筛选厂商名称，不展开全部模型。
+- 厂商浮框的搜索只匹配该厂商的模型名称与别名；查询结果标明数量。
+- 整理视图默认一行一个模型，提供「全部 / 已置顶 / 已隐藏」筛选。
+- 点击「改名」或模型名称才展开该行的别名编辑器；回车或「完成」收起。
+- 整理时点击模型名用于改名，不会切换模型；「完成」后留在当前厂商。
+- 隐藏项仍能搜索、改名与恢复；厂商徽标只统计可见模型。
+- 旧 `panel` / `list` 偏好迁移为 `hover`，置顶、最近、别名、隐藏与字号保留。
+
+
+---
+
+## 为什么重写而不是直接用社区版
+
+本插件是从 `dsh-model-fold` 的能力出发**重写**的，因为读了它的源码、又比对本机内核后，
+发现它有四个真实缺陷。这些缺陷在新插件里都有对应的修正与**回归测试**：
+
+| 社区版的问题 | 本插件的做法 |
+|---|---|
+| **样式泄漏到 `/model` 命令弹窗** —— 它的分组标题 CSS 是全局选择器 `section[role="group"] > [data-menu-group-heading]`，而该结构来自共享原语 `MenuGroup`，`/model` 弹窗（`role="listbox"`）同样使用它；于是弹窗标题被加了箭头/手型光标/hover 高亮，而它 README 明确写着「暂不涉及」 | 作用域由 **JS 签名判定**后写入 `data-mo-scope`，**所有 CSS 一律挂在 `[data-mo-scope="1"]` 之下**；四条条件里有一条就是「不在 `role="listbox"` 内」。样式在物理上无法离开模型菜单 |
+| **两个监听器没摘干净**（`mouseover`/`mouseout` 注册了但 dispose 没移除） | dispose **逐一摘净**全部监听/定时器/观察器/自建节点；清理后 `scan` 不再增强 |
+| **版本号混乱**（0.5.0 的包里混着 v0.4.3 / v0.4.9 / v0.6.0 注释），1381 行无测试 | 单一版本号；自动化回归测试包含「内核 DOM 保真」套件，防止测试夹具与真实内核脱节 |
+| **置顶/搜索/别名都要自己来** | 悬浮展开 + 置顶 + 最近 + 搜索（含别名）+ 别名 + 隐藏，全部带持久化 |
+
+另外，本插件修掉了一个社区版没有、但**很容易踩**的坑：观察器盯 `document.body` 时，
+插件自己的面板重渲染会再次触发观察器 → 又重渲染，形成**无限循环**。这里用
+「渲染重入守卫 + 只认自建节点的变动过滤 + 视图签名比对」三重保险掐断。
+
+---
+
+## 功能
+
+<table>
+<tr><th width="50%">折叠后的来源列表 + 侧边模型面板</th><th>整理视图（置顶 / 隐藏 / 别名）</th></tr>
+<tr><td>菜单只列来源，悬浮或点击来源从右侧滑出该来源的模型</td><td>点「整理」进入整理视图，可置顶、隐藏、改名</td></tr>
+</table>
+
+### 1. 厂商列表与模型浮框
+
+主菜单只列厂商及其可见模型数量。鼠标划过或点击厂商，会在菜单侧边打开模型浮框；空间不足时自动翻到另一侧。
+
+原菜单搜索框用于**找厂商**，不按模型名称筛选。搜索后按回车或方向键可进入匹配厂商的浮框。
+
+浮框搜索用于**找当前厂商的模型**，匹配原名与别名。没有查询时按 Esc、点击外部或选中模型可关闭；有查询时 Esc 先清空。移开鼠标不会自动收起。
+
+左上角四格按钮进入常用模型总览，查看置顶、最近与全部厂商。总览的搜索可匹配所有来源的可见模型。
+
+插件用属性和 CSS 隐藏原生模型行，保留所有 React 节点与真实选择按钮。
+
+### 1b. 设置页（插件管理 → dsh-model-organizer）
+
+常驻偏好收进官方的 bundle 设置槽位（`plugins.bundle.config`，与 dsh-usage-pill 同款做法），
+打开 **插件管理页 → 本插件** 即可看到：
+
+| 设置 | 作用 |
+|---|---|
+| **面板字号** | 12 / 13 / 14，只作用于插件面板，不碰宿主界面 |
+| **清空偏好数据** | 一键删除置顶/最近/别名/隐藏记录；上面的设置保留，有确认框 |
+
+设置页与菜单面板**双向实时同步**（同一份 localStorage，模块级 pub/sub 桥接）：
+设置页改字号，打开的浮框立刻更新；菜单里改偏好，设置页数据同步刷新。
+
+### 2. 置顶（★）
+
+普通列表中划过模型行即可点星标，整理视图中也可置顶；置顶模型在总览顶部。上限 12 个，达到上限时给出提示。
+
+### 3. 最近使用
+
+每次选择模型都会记入「最近」（去重、置前、最多 8 个），排在置顶之后、来源列表之前。
+
+### 4. 搜索（支持别名）
+
+厂商浮框内搜索框：仅匹配当前厂商；总览可跨来源匹配。**同时匹配别名与原始名**，用**子序列模糊匹配**
+（敲 `dsv4f` 就能找到 `DeepSeek-V4.1-Flash`），排序为
+「完全命中 > 前缀 > 子串 > 子序列」。
+
+### 5. 别名 / 隐藏
+
+整理视图里可直接置顶、隐藏或恢复；点击「改名」才展开别名输入框：
+
+- **别名**：给长模型名起短名字（如 `DSV4`），显示名与搜索都跟着变；
+- **隐藏**：把用不上的模型（比如各种 `gpt-image-*` 图像模型）从列表里藏掉，
+  浏览时的搜索也不会搜出来；整理视图的搜索包含隐藏项，随时可恢复。
+
+### 6. 其它
+
+- 底栏只在整理模式或有隐藏计数时显示；搜索不为空时 `Esc` 先清空，再按关闭。点击外部、选择模型后自动收起。
+- **不联网**：零网络请求，偏好全在本机 `localStorage`。
+- 颜色全部使用官方 `--dsw-*` 主题令牌，深浅主题自动跟随。
+
+---
+
+## 安装
+
+从 GitHub 安装（推荐，依赖 `dsh.bundle` 自声明，无需手改 `cordis.patch.yml`）：
+
+```bash
+dsh plugin --profile <profile> add github:oliblue-evan/dsh-model-organizer
+```
+
+或在 DSH 里用 `plugin_manager`：
+
+```text
+plugin_manager(action: "install_bundle", target: "github:oliblue-evan/dsh-model-organizer")
+```
+
+本地开发（改代码即时生效）：
+
+```bash
+dsh plugin --profile <profile> add /path/to/your/model-organizer
+```
+
+**装完必须重启 DSH 一次**：新装的 bundle 需要宿主在启动时把它挂进客户端插件图，
+那一步不会在运行中发生。
+
+重启之后**再改代码不用再重启** —— 本 profile 挂了 `@deepseek-ai/dsh-client-hmr`，
+它会按 mtime/ctime/size 轮询每个插件 bundle，发现变化就热替换（README 原文：
+*"Code rebuilds replace the affected plugin with fresh component state"*）。
+所以迭代时改 `client.js` 存盘、刷新页面即可。
+
+### 卸载 / 回滚
+
+```bash
+dsh plugin --profile desktop remove dsh-model-organizer
+```
+
+插件在 `apply` 里用 `ctx.effect` 托管全部资源，卸载时会摘净监听器、定时器、
+观察器、自建样式与面板，并还原所有写过的 `data-mo-*` 属性。
+
+---
+
+## 适配内核
+
+| 项目 | 版本 |
+|---|---|
+| 已验证内核 | **0.2.0-rc.2**（`@deepseek-ai/dsh`） |
+| 官方模型选择组件 | `@deepseek-ai/dsh-client-ui-model-selection` **0.2.0-rc.2** |
+| 分组原语 | `@deepseek-ai/dsh-client-ui-primitives` 的 `MenuGroup` |
+| 运行环境 | DSH Web GUI（Electron renderer） |
+
+本插件增强的是 composer 的**模型面板**：
+
+```text
+div[role="menu"][data-menu-material]        ← MenuSurface（外层；模型面板里 role="group"）
+└─ div.groups[role="menu"]                  ← 内层滚动容器 ★ 作用域打在这里
+   └─ section[role="group"][data-menu-group][aria-labelledby]
+      ├─ span[data-menu-group-start]        ← 位置哨兵（非标题）
+      ├─ div[data-menu-group-heading]       ← ★ 分组标题（来源名）
+      └─ button[role="menuitemradio"][title] ← 模型项
+```
+
+用的是内核**有意暴露**的语义钩子（`data-menu-group-heading` / `menuitemradio` /
+`aria-checked` / `title`），不是「第几个孩子」式的位置选择器。但内核若改动这套结构，
+插件会**静默不生效**（不会报错、不会破坏原菜单、不会碰 `/model` 弹窗）。
+
+排查方法：在 DSH 里按 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> 打开 DevTools，
+确认 `div[role="menu"]` 下仍有 `section[role="group"] > [data-menu-group-heading]`
+与 `button[role="menuitemradio"]`。
+
+---
+
+## 开发
+
+```bash
+# 测试（Node 不在 PATH 时用 DSH 自带的）
+node --test test/*.test.mjs
+```
+
+测试分 8 个文件：
+
+| 文件 | 覆盖 |
+|---|---|
+| `test/fixture-fidelity.test.mjs` | **夹具保真**：断言测试 DOM 与真实内核结构一致（外层/内层 role、`MenuGroup` 子元素顺序、`aria-labelledby` 对应、`showSearch` 阈值、`/model` 弹窗是 listbox），防止测试与内核脱节 |
+| `test/organizer-logic.test.mjs` | 纯逻辑：偏好规范化、置顶/最近、别名、模糊搜索、排序、签名判定 |
+| `test/organizer-dom.test.mjs` | 端到端：**加载真实 `client.js`**，验证作用域、`/model` 弹窗不被污染、折叠前移焦点、React 节点不被移动、dispose 清理 |
+| `test/organizer-interaction.test.mjs` | 交互：悬浮/点击/双击、置顶、最近、搜索、别名、隐藏、模式切换、Escape/点击外部 |
+| `test/organizer-state-reliability.test.mjs` | 稳定 ID、改名后重开、旧数据迁移与冲突保护、目录订阅、属性状态同步、编辑焦点、Esc 与计数范围 |
+| `test/organizer-provider-workflow.test.mjs` | 单一交互、两层搜索、输入事件隔离、旧偏好迁移、按需别名编辑、整理筛选与卸载恢复 |
+| `test/organizer-usability.test.mjs` | 直接置顶、按来源整理、隐藏项搜索恢复、键盘导航、输入法、滚动/焦点保留、置顶上限与浮层位置 |
+| `test/organizer-kernel-compat.test.mjs` | **内核兼容**：模拟内核自己的 `closeOutside`/`onBlur`，验证面板操作不会被判成「点在外面」；键盘导航与折叠的一致性；右键不被拦 |
+| `test/organizer-lifecycle.test.mjs` | **生命周期**：给 add/removeEventListener 打桩做**监听器对账**，dispose 后净增必须为 0 |
+| `test/organizer-audit-regressions.test.mjs` | **独立审计回归**：12 个来自对抗性审计的真实缺陷（节点被替换丢标记、跨标题双击误判、孤儿浮层、键碰撞、busy 时假记录、隐藏行被键盘选中、HMR 误删样式、防抖饿死等） |
+| `test/organizer-journey.test.mjs` | **用户旅程**：32 个模型的完整流程（折叠→滑出→选择→置顶→隐藏→别名→搜索→持久化→重开） |
+| `test/organizer-settings.test.mjs` | **设置卡**：注册契约（槽位/key/locale）、每个控件写偏好、**跨世界双向同步**、清空保留设置、确认框可取消、词典兜底 |
+
+其中几条是**独立回归**（都对应开发中真实抓到的缺陷；`test/organizer-audit-regressions.test.mjs`
+一整组来自独立的对抗性审计，每个用例都先验证过修复前的错误行为）：
+
+- `★ 独立回归：/model 命令弹窗完全不被污染` —— 作用域纪律；
+- `★ 回归：collapsed 的 false（显式展开）必须能往返持久化` —— 偏好清洗曾丢掉 `false`
+  （该字段随 `list` 模式一并移除，用例改为断言字段已不存在）；
+- `test/organizer-kernel-compat.test.mjs` 一整组 `★ 关键` —— 见下。
+
+### 为什么单独有一组「内核兼容」测试
+
+面板挂在 `document.body`，而内核有**它自己的**两处逻辑会把它当成「用户离开了菜单」：
+
+1. `closeOutside`：`document` **冒泡期**的 `mousedown`，落点不在 `rootRef`/`menuRef` 内就关闭菜单；
+2. `onBlur`：根节点失焦，`relatedTarget` 不在 `rootRef`/`menuRef` 内就 `close()`。
+
+面板两者都不在，所以**真实用户一按面板，整个菜单就会消失**。
+
+只用 `.click()` 的测试**看不见**这件事 —— `.click()` 既不派发 `mousedown` 也不移动焦点。
+所以 `test/kernel-behavior.mjs` 把内核的行为如实地补上，并用
+`realClick()`（mousedown → 焦点转移 → mouseup → click）驱动测试。
+这组测试在修复前 **6/8 全红**，正是它逼出了下面这条实现要点。
+
+夹具保真套件读的是从内核 asar 里抽出的真实组件源码
+（`model-selection` / `ui-primitives`），所以内核升级导致结构漂移时，**测试会先红**。
+
+---
+
+## 实现要点（给改这个插件的人）
+
+1. **不复制内核状态。** 模型清单、选中项、切换动作都由内核掌握；面板点一条模型的做法是
+   `nativeButton.click()`，选择动作完全由内核自己的 `onClick` 完成。
+2. **作用域必须由 JS 判定。** `MenuGroup` 是**共享原语**，`/model` 弹窗也用它 ——
+   只靠 CSS 选择器必然泄漏。判定见 `isModelMenuSignature`。
+3. **必须拦掉内核自己的「点在外面」与失焦判定。** 面板挂在 `body`，不在内核的
+   `rootRef`/`menuRef` 内：
+   - 在 `document` **捕获期**的 `mousedown` 上 `stopPropagation()`，让它走不到内核的
+     `closeOutside`（冒泡期）；同时对非输入控件 `preventDefault()`，阻止默认的焦点转移，
+     避免触发内核 `onBlur`；
+   - 输入框必须放行默认动作（否则没法打字），它的失焦由 `document` 捕获期的
+     `focusout` 兜住：relatedTarget 落在面板内就拦下。
+   这两条不做，用户一碰面板菜单就没了 —— 而只用 `.click()` 的测试**测不出来**。
+4. **折叠前先移焦点。** 内核进入模型面板后会把焦点放到当前选中模型上；
+   用 `display:none` 隐藏它会触发强制失焦 → 内核 `onBlur` 认为焦点离开菜单 → `close()`，
+   整个菜单连面板一起消失。所以必须先 `focus()` 回 trigger。
+5. **面板挂 `body` 且不设 tabindex、不主动 focus。** 焦点一旦进入面板就等于离开菜单。
+6. **观察器要防自激。** 面板也在 `body` 里，重渲染会被观察器看到 → 反复重渲染。
+   用「渲染重入守卫 + 只认自建节点的变动过滤 + 视图签名比对」三重保险掐断。
+7. **事件一律 `document` 捕获期委托**，不把监听器挂到会被 React 换掉的节点上。
+8. **不能把「折叠」和内核自己的能力对立起来。** 两处会相撞，都实测过：
+   - **内核自带的搜索框**（模型数 >4 时出现）：用户在里面打字，内核会过滤各来源组，
+     而插件把所有组折叠着 —— 命中结果全被藏住，看起来像「搜不到」。修法：
+     检测到内核搜索有内容就临时展开。
+   - **键盘导航**：内核的上下键导航走它**自己的 React 状态**（`visibleModels` /
+     `data-highlighted`），**完全看不见**插件在 CSS 里的隐藏。折叠着按方向键，
+     高亮会在不可见的行之间移动，**按 Enter 就会选中一个用户看不见的模型**。
+     修法：听到方向键/Tab/Enter 就展开，用户改用鼠标后恢复折叠。
+   - 【坑 1】判据**不能**用「焦点是否在菜单内」：内核在进入模型面板且 `showSearch`
+     为真时会主动 `searchRef.focus()`，而搜索框恰好只在模型数 >4 时出现 ——
+     用焦点判断的话，折叠在最需要它的场景里会被永久跳过，**核心功能直接失效**。
+   - 【坑 2】判据也必须**限定落点在原生菜单内**：方向键/Tab/Enter 在**插件自己的**
+     面板里同样常用（搜索框里移光标、Tab 换焦点、Enter 确认）。早期只看按键不看落点，
+     用户在面板里打字就会把原生菜单无谓展开，折叠状态被冲掉。
+     合法范围与内核一致：内核把 `onKeyDown` 挂在 rootRef 上，而菜单是 React portal，
+     事件按 **React 树**传播，所以真实 target 是「菜单内的焦点元素」或**配对 trigger**。
+9. **设置卡（React）与菜单增强（DOM）是两个世界**，共享同一份 localStorage 偏好，
+   靠模块级 pub/sub 桥同步（`readState`/`writeState`/`subscribeSettings`）。
+   不能用 `storage` 事件 —— 它只在**其他标签页**写入时触发，同页面内收不到。
+   DOM 侧写偏好时记录 `lastSelfWrite`，广播回来识别是自己写的就跳过（防回声）。
+10. **（已移除的设计，留档避免重走）** 早期有第三种 `list`（列表内就地展开）模式：
+   点标题只展开原生列表、不开面板，于是面板承载的功能全不可达，为此加过一个
+   挂在 `body` 上的 🗂 启动按钮。**两者都已删除** —— 多一个模式就多一套状态
+   （每个来源记展开/折叠）和一个与模式无关的入口，而用户实际只需要
+   「划/点标题 → 出面板」。现在点标题的含义唯一：开/关该来源的面板。
+   老数据里的 `mode:'list'` 由 `isMode` 拒掉并回落 `hover`；`collapsed` 字段直接丢弃。
+
+---
+
+## 已知限制
+
+1. **身份来自宿主已经加载的目录缓存**：读取 `modelDirectories.catalog.store`，不调用 load 或新增网络请求。缺少该服务的宿主会保守退回显示名；同一原生节点的身份会暂存以避免当次改名失联，但跨窗口的改名需要宿主 ID。
+2. **迁移只接受唯一对应关系**：新键为 `["id", "厂商 ID", "模型 ID"]`，旧二元组仍兼容。能确认的显示名或费用后缀对应关系会迁移；无法唯一确认的历史记录保留，避免套到错误模型上。
+3. **强耦合内核 DOM 语义**：内核若改动 `data-menu-group-heading` / `menuitemradio` /
+   `data-menu-group` 这套钩子，插件会**静默不生效**（不报错、不破坏原菜单、
+   也不会碰 `/model` 弹窗）。夹具保真测试会在这种情况下先变红。
+4. **面板不会因鼠标移开而自动收起**（刻意如此：面板在菜单右侧，鼠标要从标题移到
+   面板里的搜索框；一移开就收的话面板没法用）。关闭方式：选中模型 / `Esc` / 点击外部。
+5. **右键菜单**：面板内右键的默认行为（上下文菜单）已保留，只拦主键的默认动作；
+   但两侧的 `stopPropagation` 意味着内核不会因为你在面板里按任何键而关闭菜单 ——
+   这是刻意的。
+6. 面板挂在 `document.body` 并用 `fixed` 定位 —— 这是「React portal 子树会被重渲染
+   回收非 React 子节点」逼出来的做法，代价是面板位置在极端的滚动/缩放场景下
+   需要一次重排（已监听 `resize`）。
+
+## 验证状态（本机实测）
+
+安装后重启 DSH，实测确认插件**已加载并运行**：
+
+| 证据 | 观察结果 |
+|---|---|
+| 宿主重启时间 | `2026-10-12 16:23:18`（晚于插件安装与最后一次改动 16:21:17） |
+| 重启后的 combo 请求 | 16:23:29 拉取的 15-bundle combo 中，`dsh-model-organizer/client.js` 位于 **idx 3**，与 `dsh-usage-pill`、`dsh-our-free-model` 并列 |
+| 是否真的执行过 | **真实浏览器 localStorage** 里已出现本插件的状态键 `dsh-model-organizer-state-v1`，内容为 v2 schema（`{"version":2,"mode":"hover",…}`） |
+| 是否造成崩溃 | 宿主进程存活，无 Crashpad 记录 |
+| 自动化测试 | **114/114 通过** |
+
+以上表格为首次安装记录。2026-10-13 更新至 0.6.1 后，自动化测试 **140/140 通过**，
+并已通过本机 DSH 界面截图确认置顶星标、整行选中背景与厂商浮框的显示效果。
+
+## License
+
+MIT

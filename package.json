@@ -1,0 +1,52 @@
+{
+  "name": "dsh-model-organizer",
+  "version": "0.6.1",
+  "icon": "assets/icon.svg",
+  "type": "module",
+  "description": "模型菜单整理器：搜索厂商、悬浮展开厂商模型、厂商内搜索；直接置顶、最近、按需改名、隐藏与恢复，整理筛选与浮框字号设置。| Organize DSH models by provider: provider search, hover flyouts, scoped model search, quick pins, recents, inline aliases and visibility filters.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./assets/*": "./assets/*"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale",
+    "assets",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oliblue-evan/dsh-model-organizer.git"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-model-selection"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
