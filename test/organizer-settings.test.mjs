@@ -101,11 +101,15 @@ test('★ 清空偏好：删用户数据但保留设置', async () => {
   assert.ok(before.favorites.length + before.hidden.length > 0, '前置条件：应有用户数据');
 
   const card = await renderCard(env);
-  // 确认框：jsdom 里默认返回 true
-  env.window.confirm = () => true;
+  // 宿主禁用 confirm 时仍必须经过页内确认，不能直接删除。
+  env.window.confirm = () => { throw new Error('host confirm unavailable'); };
   const resetBtn = buttonByText(card.container, '清空');
   assert.ok(resetBtn, '应有清空按钮');
   resetBtn.click();
+  await settle(env.window, 50);
+  assert.deepEqual(stateOf(env), before, '打开确认区不能修改偏好');
+  assert.equal(env.document.activeElement.textContent, '取消', '焦点先落在安全的取消操作');
+  buttonByText(card.container, '确认清空').click();
   await settle(env.window, 300);
 
   const after = stateOf(env);
@@ -116,6 +120,14 @@ test('★ 清空偏好：删用户数据但保留设置', async () => {
   // 设置项必须保留
   assert.equal(after.mode, before.mode, '★ 模式（设置）不该被清掉');
   assert.equal(after.fontSize, before.fontSize, '★ 字号设置不该被清掉');
+  buttonByText(card.container, '14').click();
+  await settle(env.window, 50);
+  buttonByText(card.container, '撤销清空').click();
+  await settle(env.window, 100);
+  const restored = stateOf(env);
+  for (const key of ['favorites', 'hidden', 'recents', 'aliases']) assert.deepEqual(restored[key], before[key]);
+  assert.equal(restored.fontSize, 14, '撤销只恢复记录，保留新字号');
+  assert.ok(card.container.querySelector('[role="status"]').textContent.includes('已恢复'));
   card.unmount();
   env.dispose();
 });
@@ -131,10 +143,12 @@ test('清空可被确认框取消（不误删数据）', async () => {
   assert.ok(before.favorites.length > 0);
 
   const card = await renderCard(env);
-  env.window.confirm = () => false; // 用户点「取消」
   buttonByText(card.container, '清空').click();
+  await settle(env.window, 50);
+  buttonByText(card.container, '取消').click();
   await settle(env.window, 300);
   assert.deepEqual(stateOf(env).favorites, before.favorites, '取消后数据应原封不动');
+  assert.equal(buttonByText(card.container, '确认清空'), undefined);
   card.unmount();
   env.dispose();
 });
@@ -154,6 +168,7 @@ test('★ 反向同步：菜单里点置顶 → 设置页不报错且读到最�
   assert.ok(stateOf(env).favorites.length > 0, '置顶应写入');
   // 设置页仍应正常渲染（订阅刷新不抛错）
   assert.ok(card.container.textContent.includes('面板字号'), '设置页应保持可用');
+  assert.equal(card.container.querySelector('.mo-stat strong').textContent, String(stateOf(env).favorites.length));
   card.unmount();
   env.dispose();
 });
@@ -185,5 +200,60 @@ test('dispose 后设置卡订阅不再刷新（不泄漏）', async () => {
     env.window.localStorage.setItem(KEY, JSON.stringify({ version: 3, mode: 'panel' }));
     env.window.dispatchEvent(new env.window.Event('storage'));
   });
+  env.dispose();
+});
+
+test('字号预览标记当前选项；无记录时清空不可用', async () => {
+  const env = createPluginEnv();
+  const card = await renderCard(env);
+  const selected = card.container.querySelector('.mo-options [aria-pressed="true"]');
+  assert.equal(selected.textContent, '13');
+  assert.equal(card.container.querySelector('.mo-preview').style.fontSize, '13px');
+  assert.equal(buttonByText(card.container, '清空').disabled, true);
+  buttonByText(card.container, '12').click();
+  await settle(env.window, 100);
+  assert.equal(card.container.querySelector('.mo-preview').style.fontSize, '12px');
+  assert.equal(card.container.querySelector('.mo-options [aria-pressed="true"]').textContent, '12');
+  card.unmount(); env.dispose();
+});
+
+test('清空后的新记录使撤销失效，避免覆盖菜单的新选择', async () => {
+  const env = createPluginEnv();
+  const view = mountModelMenu(env.document, defaultSpec());
+  await settle(env.window);
+  openPanelViaHeading(env, view);
+  panelOf(env).querySelector('[data-act="manage"]').click();
+  panelOf(env).querySelector('[data-act="fav"]').click();
+  const card = await renderCard(env);
+  buttonByText(card.container, '清空').click();
+  await settle(env.window, 50);
+  // Escape 只取消页内确认，不清空或冒泡关闭宿主。
+  const event = new env.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+  buttonByText(card.container, '取消').dispatchEvent(event);
+  await settle(env.window, 50);
+  assert.equal(buttonByText(card.container, '确认清空'), undefined);
+  assert.equal(stateOf(env).favorites.length, 1);
+  buttonByText(card.container, '清空').click();
+  await settle(env.window, 50);
+  buttonByText(card.container, '确认清空').click();
+  await settle(env.window, 100);
+  assert.ok(buttonByText(card.container, '撤销清空'));
+  panelOf(env).querySelector('[data-act="fav"]').click();
+  await settle(env.window, 150);
+  assert.equal(stateOf(env).favorites.length, 1);
+  assert.equal(buttonByText(card.container, '撤销清空'), undefined);
+  card.unmount(); env.dispose();
+});
+
+test('设置槽独立持有样式，旧卡卸载不移除新卡的样式', async () => {
+  const env = createPluginEnv();
+  const first = await renderCard(env);
+  const second = await renderCard(env);
+  const style = () => env.document.getElementById('dsh-model-organizer-settings-style');
+  assert.ok(style().textContent.includes('.mo-settings .mo-card'));
+  first.unmount();
+  assert.ok(style(), '旧设置卡清理必须保留新卡样式');
+  second.unmount();
+  assert.equal(style(), null, '最后一张卡卸载时清理自己的样式');
   env.dispose();
 });

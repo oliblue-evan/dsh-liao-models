@@ -64,7 +64,7 @@ window.__ModuleLoader__.load({
     // 模型菜单的增强仍是纯 DOM（那个菜单没有对应槽位，见文件头说明）。
     const React = require('react');
     const h = React.createElement;
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useLayoutEffect, useRef } = React;
 
     // #region 纯逻辑
     // ─────────────────────────────────────────────────────────────────────
@@ -620,6 +620,33 @@ window.__ModuleLoader__.load({
      *
      * @returns {string} 完整 CSS 文本。
      */
+    function buildSettingsCss() {
+      return [
+        '.mo-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary,inherit);font-size:13px;line-height:1.5;}',
+        '.mo-settings .mo-card{border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:12px;padding:16px;display:grid;gap:12px;}',
+        '.mo-settings .mo-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}',
+        '.mo-settings .mo-setting-text{display:grid;gap:4px;flex:1;min-width:180px;}',
+        '.mo-settings .mo-title{font-weight:600;font-size:13px;}',
+        '.mo-settings .mo-hint{font-size:12px;color:var(--dsw-alias-label-tertiary,#9aa0a8);line-height:1.6;}',
+        '.mo-settings .mo-options{display:flex;gap:4px;padding:3px;border-radius:9px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));}',
+        '.mo-settings button{font:inherit;font-size:12px;min-height:32px;padding:6px 12px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:7px;background:transparent;color:inherit;cursor:pointer;}',
+        '.mo-settings button:disabled{opacity:.45;cursor:default;}',
+        '.mo-settings button:focus-visible,.mo-settings summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#6d91ff);outline-offset:3px;}',
+        '.mo-settings .mo-options button{border-color:transparent;min-width:46px;}',
+        '.mo-settings .mo-options button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18));color:var(--dsw-alias-brand-primary,#6d91ff);font-weight:600;}',
+        '.mo-settings .mo-preview{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:9px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));}',
+        '.mo-settings .mo-preview-star{color:var(--dsw-alias-brand-primary,#6d91ff);font-size:17px;}',
+        '.mo-settings .mo-stats{display:flex;gap:8px;flex-wrap:wrap;}',
+        '.mo-settings .mo-stat{display:flex;align-items:baseline;gap:6px;padding:7px 10px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));}',
+        '.mo-settings .mo-stat strong{font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}',
+        '.mo-settings .mo-danger{color:var(--dsw-alias-label-error,#e5484d);}',
+        '.mo-settings .mo-confirm{display:grid;gap:10px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));}',
+        '.mo-settings .mo-actions{display:flex;gap:8px;flex-wrap:wrap;}',
+        '.mo-settings details summary{cursor:pointer;font-weight:500;}',
+        '.mo-settings .mo-help{display:grid;gap:8px;padding-top:12px;}',
+      ].join('\n');
+    }
+
     function buildCss() {
       const scope = '[' + SCOPE_ATTR + '="1"]';
       return [
@@ -2429,33 +2456,58 @@ window.__ModuleLoader__.load({
 
     /** 中文词典：宿主词典缺失时作为兜底。 */
     const ZH = {
-      'settings.note': '偏好保存在浏览器本地，插件无任何网络请求。',
-      'settings.mode': '展开模式',
-      'settings.modeHint': '来源列表如何展开为模型列表。面板里的模式按钮可随时切换，这里设置持久默认。',
-      'settings.mode.hover': '悬浮',
-      'settings.mode.panel': '面板',
-      'settings.mode.list': '列表',
-      'settings.fontSize': '面板字号',
-      'settings.fontSizeHint': '只作用于插件自己的面板，不影响宿主菜单。',
-      'settings.reset': '清空偏好数据',
-      'settings.resetHint': '删除置顶、最近、别名与隐藏记录；模式与上方设置保留。',
-      'settings.resetButton': '清空',
-      'settings.resetConfirm': '确定清空？置顶 / 最近 / 别名 / 隐藏记录都会删除。',
+      "settings.note": "修改立即生效，偏好仅保存在当前浏览器。",
+      "settings.fontSize": "面板字号",
+      "settings.fontSizeHint": "只调整模型浮框，宿主界面保持原字号。",
+      "settings.preview": "字号预览",
+      "settings.previewProvider": "示例厂商 · 已置顶",
+      "settings.data": "本地记录",
+      "settings.dataHint": "置顶、最近使用、别名和隐藏记录会随模型菜单实时更新。",
+      "settings.pins": "置顶",
+      "settings.recents": "最近",
+      "settings.aliases": "别名",
+      "settings.hidden": "隐藏",
+      "settings.reset": "清空偏好数据",
+      "settings.resetHint": "只清空模型记录，保留字号设置。",
+      "settings.resetButton": "清空",
+      "settings.resetConfirm": "确定清空所有模型记录？在离开此页面前可以撤销。",
+      "settings.confirmButton": "确认清空",
+      "settings.cancel": "取消",
+      "settings.cleared": "模型记录已清空。",
+      "settings.undo": "撤销清空",
+      "settings.restored": "模型记录已恢复。",
+      "settings.help": "搜索与整理怎么用",
+      "settings.helpProvider": "菜单搜索找厂商；划过或点击厂商，打开该厂商的模型浮框。",
+      "settings.helpModels": "浮框搜索匹配当前厂商的模型名称与别名；左上角四格按钮进入总览，可跨厂商搜索。",
+      "settings.helpManage": "在「整理」里置顶、隐藏和改名，用「已隐藏」筛选找回模型。",
+      "settings.helpKeys": "搜索时按 Esc 先清空查询，再按一次关闭；方向键选择，回车确认。"
     };
-    /** 英文词典。 */
     const EN = {
-      'settings.note': 'Preferences live in this browser only; the plugin makes no network requests.',
-      'settings.mode': 'Expand mode',
-      'settings.modeHint': 'How the provider list expands into models. The panel buttons switch instantly; this sets the persisted default.',
-      'settings.mode.hover': 'Hover',
-      'settings.mode.panel': 'Panel',
-      'settings.mode.list': 'List',
-      'settings.fontSize': 'Panel font size',
-      'settings.fontSizeHint': 'Applies to the plugin panel only, never to the host menu.',
-      'settings.reset': 'Clear preference data',
-      'settings.resetHint': 'Removes pins, recents, aliases and hidden records; mode and settings above are kept.',
-      'settings.resetButton': 'Clear',
-      'settings.resetConfirm': 'Clear now? Pins / recents / aliases / hidden records will be deleted.',
+      "settings.note": "Changes apply immediately. Preferences stay in this browser.",
+      "settings.fontSize": "Panel font size",
+      "settings.fontSizeHint": "Adjusts model flyouts only; the host keeps its font size.",
+      "settings.preview": "Font preview",
+      "settings.previewProvider": "Sample provider · Pinned",
+      "settings.data": "Local records",
+      "settings.dataHint": "Pins, recents, aliases and hidden records update with the model menu.",
+      "settings.pins": "Pins",
+      "settings.recents": "Recents",
+      "settings.aliases": "Aliases",
+      "settings.hidden": "Hidden",
+      "settings.reset": "Clear preference data",
+      "settings.resetHint": "Clears model records only; keeps the font size.",
+      "settings.resetButton": "Clear",
+      "settings.resetConfirm": "Clear all model records? You can undo before leaving this page.",
+      "settings.confirmButton": "Confirm clear",
+      "settings.cancel": "Cancel",
+      "settings.cleared": "Model records cleared.",
+      "settings.undo": "Undo clear",
+      "settings.restored": "Model records restored.",
+      "settings.help": "Search and organize",
+      "settings.helpProvider": "Search the menu for providers; hover or click a provider to open its models.",
+      "settings.helpModels": "Flyout search matches names and aliases in that provider. The grid button opens the overview to search across providers.",
+      "settings.helpManage": "Use Organize to pin, hide or rename. The Hidden filter lets you restore models.",
+      "settings.helpKeys": "Escape clears a query first, then closes. Use arrow keys to navigate and Enter to select."
     };
 
     /**
@@ -2497,50 +2549,103 @@ window.__ModuleLoader__.load({
       writeState(Object.assign({}, readState(), patch));
     }
 
-    /** 设置卡：分段按钮（模式 / 字号）、开关（启动按钮）、清空按钮。 */
+    /** 设置页：即时预览、记录摘要和可撤销的页内清空。 */
     function ModelOrganizerSettings(props) {
       const t = translator(props);
       const settings = useSettings();
-      // 该槽位只在 view === 'page' 时渲染（槽位契约如此）
+      const [confirming, setConfirming] = useState(false);
+      const [backup, setBackup] = useState(null);
+      const [notice, setNotice] = useState('');
+      // 设置槽可能独立于菜单增强重挂载；它自己持有作用域样式，避免热更新裸排版。
+      useLayoutEffect(function () {
+        if (props.view !== 'page') return;
+        const id = 'dsh-model-organizer-settings-style';
+        const token = String(Date.now()) + '-' + String(Math.random());
+        let style = document.getElementById(id);
+        if (!style) { style = document.createElement('style'); style.id = id; document.head.appendChild(style); }
+        style.setAttribute('data-owner', token);
+        style.textContent = buildSettingsCss();
+        return function () {
+          if (style.getAttribute('data-owner') === token && style.parentNode) style.parentNode.removeChild(style);
+        };
+      }, [props.view]);
+      const clearRef = useRef(null);
+      const undoRef = useRef(null);
+      const wasConfirming = useRef(false);
+      const hasRecords = settings.favorites.length + settings.recents.length + settings.hidden.length + Object.keys(settings.aliases).length > 0;
+      // 清空后如果用户在菜单中建立了新记录，不再用旧快照覆盖新选择。
+      useEffect(function () {
+        if (hasRecords && backup) { setBackup(null); setNotice(''); }
+      }, [settings]);
+      useEffect(function () {
+        if (wasConfirming.current && !confirming) {
+          const target = backup ? undoRef.current : clearRef.current;
+          if (target) target.focus();
+        }
+        wasConfirming.current = confirming;
+      }, [confirming]);
       if (props.view !== 'page') return null;
-      const labelStyle = { fontWeight: 500, fontSize: '13px', color: 'var(--dsw-alias-label-primary,inherit)' };
-      const hintStyle = { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary,#9aa0a8)', lineHeight: 1.6 };
-      const rowStyle = { display: 'flex', alignItems: 'center', gap: '12px', padding: '16px 0', flexWrap: 'wrap', borderBottom: '1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.14))' };
-      const textWrap = { flex: '1 1 220px', minWidth: '180px', display: 'flex', flexDirection: 'column', gap: '5px' };
-      const btnBase = {
-        border: '1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28))',
-        borderRadius: '8px', background: 'transparent',
-        color: 'var(--dsw-alias-label-secondary,inherit)', font: 'inherit', fontSize: '12px', padding: '6px 12px', cursor: 'pointer', minWidth: '48px', minHeight: '32px',
+      const clear = function () {
+        setBackup(readState());
+        writeState(resetUserData(readState()));
+        setConfirming(false);
+        setNotice('settings.cleared');
       };
-      const seg = function (active) {
-        return Object.assign({}, btnBase, active
-          ? { background: 'var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18))', color: 'var(--dsw-alias-label-primary,inherit)', fontWeight: 600 }
-          : {});
+      const undo = function () {
+        if (!backup) return;
+        const current = readState();
+        if (current.favorites.length + current.recents.length + current.hidden.length + Object.keys(current.aliases).length > 0) {
+          setBackup(null);
+          return;
+        }
+        writeState(Object.assign({}, current, {
+          favorites: backup.favorites, recents: backup.recents, hidden: backup.hidden, aliases: backup.aliases,
+        }));
+        setBackup(null);
+        setNotice('settings.restored');
       };
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
-        h('div', { style: hintStyle }, t('settings.note')),
-        h('div', { style: rowStyle },
-          h('div', { style: textWrap },
-            h('span', { style: labelStyle }, t('settings.fontSize')),
-            h('span', { style: hintStyle }, t('settings.fontSizeHint'))),
-          h('button', { key: 'fs12', type: 'button', style: seg(settings.fontSize === 12), onClick: function () { updateSettings({ fontSize: 12 }); } }, '12'),
-          h('button', { key: 'fs13', type: 'button', style: seg(settings.fontSize === 13), onClick: function () { updateSettings({ fontSize: 13 }); } }, '13'),
-          h('button', { key: 'fs14', type: 'button', style: seg(settings.fontSize === 14), onClick: function () { updateSettings({ fontSize: 14 }); } }, '14')),
-        h('div', { style: rowStyle },
-          h('div', { style: textWrap },
-            h('span', { style: labelStyle }, t('settings.reset')),
-            h('span', { style: hintStyle }, t('settings.resetHint'))),
-          h('button', {
-            type: 'button',
-            style: Object.assign({}, btnBase, { color: 'var(--dsw-alias-label-error,#e5484d)' }),
-            onClick: function () {
-              // confirm 缺失（被宿主沙箱剥掉）时直接执行，不静默失败。
-              try {
-                if (typeof window.confirm === 'function' && !window.confirm(t('settings.resetConfirm'))) return;
-              } catch (error) { /* 拿不到 confirm 就照常清空 */ }
-              writeState(resetUserData(readState()));
-            },
-          }, t('settings.resetButton'))));
+      const stats = [
+        ['settings.pins', settings.favorites.length], ['settings.recents', settings.recents.length],
+        ['settings.aliases', Object.keys(settings.aliases).length], ['settings.hidden', settings.hidden.length],
+      ];
+      return h('div', { className: 'mo-settings' },
+        h('div', { className: 'mo-hint' }, t('settings.note')),
+        h('section', { className: 'mo-card', 'aria-label': t('settings.fontSize') },
+          h('div', { className: 'mo-setting-row' },
+            h('div', { className: 'mo-setting-text' },
+              h('div', { className: 'mo-title' }, t('settings.fontSize')),
+              h('div', { className: 'mo-hint' }, t('settings.fontSizeHint'))),
+            h('div', { className: 'mo-options', role: 'group', 'aria-label': t('settings.fontSize') },
+              ...FONT_SIZES.map(function (size) {
+                return h('button', { key: size, type: 'button', 'aria-pressed': settings.fontSize === size,
+                  onClick: function () { updateSettings({ fontSize: size }); } }, String(size));
+              }))),
+          h('div', { className: 'mo-preview', 'aria-label': t('settings.preview'), style: { fontSize: settings.fontSize + 'px' } },
+            h('div', null, h('div', null, 'DeepSeek-V4.1-Flash'), h('div', { className: 'mo-hint', style: { fontSize: '0.85em' } }, t('settings.previewProvider'))),
+            h('span', { className: 'mo-preview-star', 'aria-hidden': true }, '★'))),
+        h('section', { className: 'mo-card', 'aria-label': t('settings.data') },
+          h('div', { className: 'mo-setting-text' }, h('div', { className: 'mo-title' }, t('settings.data')),
+            h('div', { className: 'mo-hint' }, t('settings.dataHint'))),
+          h('div', { className: 'mo-stats' }, ...stats.map(function (item) {
+            return h('span', { key: item[0], className: 'mo-stat' }, h('strong', null, item[1]), h('span', { className: 'mo-hint' }, t(item[0])));
+          })),
+          h('div', { className: 'mo-setting-row' },
+            h('div', { className: 'mo-hint' }, t('settings.resetHint')),
+            h('button', { ref: clearRef, type: 'button', className: 'mo-danger', disabled: !hasRecords || confirming,
+              onClick: function () { setConfirming(true); setNotice(''); } }, t('settings.resetButton'))),
+          confirming ? h('div', { className: 'mo-confirm', role: 'group', 'aria-label': t('settings.reset'),
+            onKeyDown: function (event) { if (event.key === 'Escape') { event.stopPropagation(); setConfirming(false); } } },
+            h('div', { className: 'mo-hint' }, t('settings.resetConfirm')),
+            h('div', { className: 'mo-actions' },
+              h('button', { type: 'button', autoFocus: true, onClick: function () { setConfirming(false); } }, t('settings.cancel')),
+              h('button', { type: 'button', className: 'mo-danger', onClick: clear }, t('settings.confirmButton')))) : null,
+          notice ? h('div', { className: 'mo-setting-row' }, h('span', { className: 'mo-hint', role: 'status' }, t(notice)),
+            backup ? h('button', { ref: undoRef, type: 'button', onClick: undo }, t('settings.undo')) : null) : null),
+        h('details', { className: 'mo-card' }, h('summary', null, t('settings.help')),
+          h('div', { className: 'mo-help mo-hint' },
+            ...['settings.helpProvider', 'settings.helpModels', 'settings.helpManage', 'settings.helpKeys'].map(function (key) {
+              return h('div', { key: key }, t(key));
+            }))));
     }
 
     return {
