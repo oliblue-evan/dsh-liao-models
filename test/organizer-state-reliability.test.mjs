@@ -144,12 +144,12 @@ test('当前厂商只显示自己的隐藏数量，总览统计目录内全部�
   const { env, panel } = await setup({ state: { hidden: [labelKey('Free 模型', 'free-v4-flash'), labelKey('不存在', '已下架')] } });
   t.after(() => env.dispose());
   assert.equal(panel.querySelector('.mo-foot').hidden, true);
-  assert.equal(panel.querySelector('.mo-summary').textContent, '4 个可见模型');
+  assert.equal(panel.querySelector('.mo-summary').textContent, '4 模型');
   panel.querySelector('[data-act="overview"]').click();
   assert.equal(panel.querySelector('.mo-foot').textContent, '已隐藏 1');
   const free = Array.from(panel.querySelectorAll('[data-act="provider"]')).find((row) => row.dataset.key === 'Free 模型'); free.click();
   assert.equal(panel.querySelector('.mo-foot').textContent, '已隐藏 1');
-  assert.equal(panel.querySelector('.mo-summary').textContent, '8 个可见模型');
+  assert.equal(panel.querySelector('.mo-summary').textContent, '8 模型');
 });
 
 test('稳定键与旧键不碰撞，迁移去重且已有 ID 别名优先', () => {

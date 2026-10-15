@@ -1,0 +1,7 @@
+{
+  "summary": "2 个厂商 · 3 个模型",
+  "providers": [
+    { "name": "Alpha", "models": ["DeepSeek-V4-Pro · x0.51", "DeepSeek-V4.1-Flash · x0.11"] },
+    { "name": "Beta", "models": ["DeepSeek-V4-Pro · x0.5"] }
+  ]
+}

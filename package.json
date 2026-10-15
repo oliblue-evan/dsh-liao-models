@@ -1,9 +1,9 @@
 {
   "name": "dsh-model-organizer",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "icon": "assets/icon.svg",
   "type": "module",
-  "description": "按厂商浏览与搜索模型，管理置顶、最近、别名与隐藏；支持浮框字号预览。 | Browse and search models by provider, manage pins, recents, aliases and visibility, and preview flyout font sizes.",
+  "description": "按厂商与模型系列浏览，支持折叠、全局搜索、名称/倍率排序、置顶、别名与隐藏。 | Group models by provider and family, search globally, sort by name or multiplier, and manage pins, aliases and visibility.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

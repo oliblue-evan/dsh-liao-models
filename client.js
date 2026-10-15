@@ -160,6 +160,9 @@ window.__ModuleLoader__.load({
         hidden: [],
         // v3+ 设置页偏好（见插件管理页的 bundle 设置卡）。
         fontSize: DEFAULT_FONT_SIZE,
+        groupSeries: true,
+        sortOrder: 'default',
+        collapsedSeries: [],
       };
     }
 
@@ -192,6 +195,9 @@ window.__ModuleLoader__.load({
         aliases: {},
         hidden: [],
         fontSize: base.fontSize,
+        groupSeries: base.groupSeries,
+        sortOrder: base.sortOrder,
+        collapsedSeries: [],
       };
     }
 
@@ -283,6 +289,9 @@ window.__ModuleLoader__.load({
         hidden: hidden,
         // v3+ 设置字段：缺省时补默认值（老数据没有这些项也照常工作）。
         fontSize: coerceFontSize(source.fontSize),
+        groupSeries: source.groupSeries !== false,
+        sortOrder: ['default', 'name', 'price-asc', 'price-desc'].includes(source.sortOrder) ? source.sortOrder : 'default',
+        collapsedSeries: coerceStringArray(source.collapsedSeries, 256),
       };
     }
 
@@ -393,11 +402,55 @@ window.__ModuleLoader__.load({
     function matchesQuery(entry, aliases, query) {
       if (query === '') return true;
       const alias = resolveLabel(aliases, entry.key, '');
-      const haystacks = [String(entry.raw).toLowerCase(), String(alias).toLowerCase()];
+      const haystacks = [String(entry.raw).toLowerCase(), String(alias).toLowerCase(), entryModelId(entry).toLowerCase()];
       for (let i = 0; i < haystacks.length; i++) {
         if (isSubsequence(haystacks[i], query)) return true;
       }
       return false;
+    }
+
+    /** Stable model IDs survive aliases and localized display labels. */
+    function entryModelId(entry) {
+      if (entry.modelId) return String(entry.modelId);
+      try { const parts = JSON.parse(entry.key); return parts.length === 3 && parts[0] === 'id' ? String(parts[2]) : ''; } catch (error) { return ''; }
+    }
+
+    const SERIES_MATCHERS = [['DeepSeek', 'deepseek'], ['GPT', '(?:gpt|chatgpt|o[134](?=[-_.\\s]|$))'], ['Claude', 'claude'], ['Gemini', 'gemini'], ['Grok', 'grok'], ['Qwen', '(?:qwen|qwq)'], ['Kimi', '(?:kimi|moonshot)'], ['GLM', 'glm'], ['MiniMax', 'minimax'], ['MiMo', 'mimo'], ['Step', 'step'], ['Mistral', '(?:mistral|codestral|devstral|ministral)'], ['Doubao', 'doubao'], ['Hunyuan', '(?:hunyuan|hy[34])'], ['Llama', 'llama']].map(family => [family[0], new RegExp('(?:^|[/\\s_.-])' + family[1] + '(?=[0-9/\\s_.-]|$)', 'i')]);
+    /** Match known families conservatively; never classify using a user alias. */
+    function modelSeries(entry) {
+      const names = [entryModelId(entry), entry.name || entry.raw || ''];
+      for (const value of names) for (const family of SERIES_MATCHERS) {
+        if (family[1].test(value)) return family[0];
+      }
+      return '其他';
+    }
+
+    /** Explicit free suffix is zero; a final arrow amount wins; unknown stays unknown. */
+    function modelMultiplier(name) {
+      const text = String(name);
+      if (/(?:[·•]|→|->)\s*(?:免费|free)\s*$/i.test(text)) return 0;
+      const matches = [...text.matchAll(/(?:^|[\s·•→]|->)[x×]\s*(\d+(?:\.\d+)?)(?![\d.])/gi)];
+      const value = matches.length ? Number(matches[matches.length - 1][1]) : null;
+      return value !== null && Number.isFinite(value) ? value : null;
+    }
+
+    function orderEntries(entries, order, query, aliases) {
+      const list = entries.slice();
+      if (order === 'default') {
+        if (!query) return list;
+        const byKey = new Map(list.map(entry => [entry.key, entry]));
+        return rankEntries(list.map(entry => ({ key: entry.key, label: entry.label, raw: entry.name, modelId: entry.modelId })), aliases, query).map(entry => byKey.get(entry.key));
+      }
+      return list.map((entry, index) => ({ entry, index })).sort(function (a, b) {
+        let difference = 0;
+        if (order === 'name') difference = a.entry.label.localeCompare(b.entry.label, 'zh-CN', { numeric: true, sensitivity: 'base' });
+        else {
+          const left = modelMultiplier(a.entry.name), right = modelMultiplier(b.entry.name);
+          if (left === null || right === null) difference = left === right ? 0 : left === null ? 1 : -1;
+          else difference = (left - right) * (order === 'price-desc' ? -1 : 1);
+        }
+        return difference || a.index - b.index;
+      }).map(item => item.entry);
     }
 
     /**
@@ -419,7 +472,7 @@ window.__ModuleLoader__.load({
       if (list.length === 0) return [];
       const q = normalizeQuery(query);
       const scored = list.map(function (entry, index) {
-        const probes = [resolveLabel(aliases, entry.key, '').toLowerCase(), String(entry.raw).toLowerCase()];
+        const probes = [resolveLabel(aliases, entry.key, '').toLowerCase(), String(entry.raw).toLowerCase(), entryModelId(entry).toLowerCase()];
         let best = 3;
         for (let i = 0; i < probes.length; i++) {
           const probe = probes[i];
@@ -636,6 +689,10 @@ window.__ModuleLoader__.load({
         '.mo-settings .mo-options button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18));color:var(--dsw-alias-brand-primary,#6d91ff);font-weight:600;}',
         '.mo-settings .mo-preview{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:9px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));}',
         '.mo-settings .mo-preview-star{color:var(--dsw-alias-brand-primary,#6d91ff);font-size:17px;}',
+        '.mo-settings select{font:inherit;font-size:12px;padding:6px 8px;max-width:180px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:7px;background:var(--dsw-alias-bg-layer-2,#292a2e);color:inherit;}',
+        '.mo-settings [role="switch"][aria-checked="true"]{color:var(--dsw-alias-brand-primary,#6d91ff);background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));}',
+        '.mo-settings .mo-tree-preview{padding:10px 12px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));font-size:12px;line-height:1.9;}',
+        '.mo-settings .mo-tree-model{padding-left:16px;}',
         '.mo-settings .mo-stats{display:flex;gap:8px;flex-wrap:wrap;}',
         '.mo-settings .mo-stat{display:flex;align-items:baseline;gap:6px;padding:7px 10px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));}',
         '.mo-settings .mo-stat strong{font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}',
@@ -705,6 +762,28 @@ window.__ModuleLoader__.load({
         '#' + PANEL_ID + ' .mo-title{font-weight:600;font-size:1.08em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
         '#' + PANEL_ID + ' .mo-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;flex-shrink:0;}',
         '#' + PANEL_ID + ' .mo-summary{font-size:.85em;color:var(--dsw-alias-label-tertiary,#9aa0a8);}',
+        '#' + PANEL_ID + ' .mo-browse-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;flex-wrap:wrap;}',
+        '#' + PANEL_ID + ' .mo-scope{display:flex;gap:2px;padding:2px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));}',
+        '#' + PANEL_ID + ' .mo-scope .mo-btn{min-height:28px;padding:4px 8px;font-size:.82em;border:0;}',
+        '#' + PANEL_ID + ' .mo-scope [aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.16));color:var(--mo-accent);}',
+        '#' + PANEL_ID + ' .mo-scope button:disabled{opacity:.4;cursor:default;}',
+        '#' + PANEL_ID + ' .mo-sort{max-width:100%;min-height:30px;padding:4px 6px;font:inherit;font-size:.82em;border-radius:7px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));background:var(--dsw-alias-bg-layer-2,#292a2e);color:inherit;}',
+        '#' + PANEL_ID + ' .mo-sort option{background:var(--dsw-alias-bg-layer-2,#292a2e);color:var(--dsw-alias-label-primary,#eee);}',
+        '#' + PANEL_ID + ' .mo-result-provider,#' + PANEL_ID + ' .mo-provider-models{margin:0;padding:0;flex-shrink:0;min-width:0;}',
+        '#' + PANEL_ID + ' .mo-provider-heading{display:flex;align-items:center;gap:8px;padding:9px 10px 5px;font-size:.9em;font-weight:600;}',
+        '#' + PANEL_ID + ' .mo-result-provider + .mo-result-provider{border-top:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.14));margin-top:6px;padding-top:4px;}',
+        '#' + PANEL_ID + ' .mo-result-provider > .mo-model-line,#' + PANEL_ID + ' .mo-result-provider > .mo-edit-row{margin-left:16px;}',
+        '#' + PANEL_ID + ' .mo-series-heading{display:flex;align-items:center;gap:6px;min-height:30px;width:100%;padding:5px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#b5b9c2);font:inherit;font-size:.85em;text-align:left;cursor:pointer;}',
+        '#' + PANEL_ID + ' .mo-series-heading:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.1));}',
+        '#' + PANEL_ID + ' .mo-series-heading .mo-chevron{width:12px;height:12px;transform:rotate(90deg);}',
+        '#' + PANEL_ID + ' .mo-series-heading[aria-expanded="false"] .mo-chevron{transform:none;}',
+        '#' + PANEL_ID + ' .mo-group-count{font-size:.88em;opacity:.55;font-variant-numeric:tabular-nums;}',
+        '#' + PANEL_ID + ' .mo-series-models{margin-left:16px;min-width:0;}',
+        '#' + PANEL_ID + ' .mo-series-models[hidden]{display:none!important;}',
+        '#' + PANEL_ID + ' .mo-result-provider > .mo-series{margin-left:8px;}',
+        '#' + PANEL_ID + ' .mo-label-line{display:flex;align-items:center;gap:6px;min-width:0;}',
+        '#' + PANEL_ID + ' .mo-label-line .mo-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+        '#' + PANEL_ID + ' .mo-alias-mark{flex:none;font-size:.85em;opacity:.5;font-weight:400;}',
         '#' + PANEL_ID + ' .mo-filters{display:flex;gap:4px;flex-shrink:0;}',
         '#' + PANEL_ID + ' .mo-filters[hidden],#' + PANEL_ID + ' .mo-alias-editor[hidden]{display:none;}',
         '#' + PANEL_ID + ' .mo-filters .mo-btn{font-size:.85em;}',
@@ -791,6 +870,24 @@ window.__ModuleLoader__.load({
         // `hidden` 只是 UA 的 display:none，会被上面的 display:flex 覆盖 —— 必须显式关掉。
         '#' + PANEL_ID + ' .mo-foot[hidden]{display:none;}',
         '#' + PANEL_ID + ' .mo-hint{font-size:.8em;color:var(--dsw-alias-label-tertiary,#9aa0a8);margin-left:auto;}',
+        // Two compact rows: title/actions, then scope inside the search field.
+        '#' + PANEL_ID + '{padding:10px;gap:8px;}',
+        '#' + PANEL_ID + ' .mo-head{gap:4px;min-height:28px;}',
+        '#' + PANEL_ID + ' .mo-head .mo-btn{min-height:28px;padding:4px 6px;}',
+        '#' + PANEL_ID + ' .mo-head .mo-iconbtn{width:28px;height:28px;flex:0 0 28px;padding:5px;}',
+        '#' + PANEL_ID + ' .mo-head .mo-summary{font-size:.76em;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis;}',
+        '#' + PANEL_ID + ' .mo-title{font-size:1em;}',
+        '#' + PANEL_ID + ' .mo-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}',
+        '#' + PANEL_ID + ' .mo-search-wrap{display:flex;align-items:center;gap:5px;padding:3px 4px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.2));border-radius:8px;background:var(--dsw-alias-bg-layer-2,transparent);}',
+        '#' + PANEL_ID + ' .mo-search-wrap:focus-within{border-color:var(--mo-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--mo-accent) 15%,transparent);}',
+        '#' + PANEL_ID + ' .mo-search-wrap .mo-search{flex:1;min-width:0;width:0;min-height:28px;padding:3px 5px;border:0;background:transparent;box-shadow:none;font-size:.92em;}',
+        '#' + PANEL_ID + ' .mo-search-wrap .mo-clear{position:static;flex:0 0 24px;width:24px;min-height:24px;padding:4px;transform:none;}',
+        '#' + PANEL_ID + ' .mo-search-wrap .mo-scope{flex:none;gap:1px;padding:1px;background:transparent;border-right:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:0;padding-right:5px;}',
+        '#' + PANEL_ID + ' .mo-scope .mo-btn{font-size:.8em;padding:3px 6px;min-height:24px;}',
+        '#' + PANEL_ID + ' .mo-sort-menu{position:absolute;right:10px;top:42px;z-index:5;display:grid;gap:2px;min-width:140px;padding:5px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.2));background:var(--dsw-alias-bg-layer-3,#303136);box-shadow:0 8px 24px #0004;}',
+        '#' + PANEL_ID + ' .mo-sort-menu[hidden]{display:none;}',
+        '#' + PANEL_ID + ' .mo-sort-menu .mo-btn{text-align:left;min-height:30px;padding:5px 10px;font-size:.9em;}',
+        '#' + PANEL_ID + ' .mo-sort-menu [aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18));color:var(--mo-accent);}',
       ].join('\n');
     }
 
@@ -819,6 +916,9 @@ window.__ModuleLoader__.load({
         style.id = STYLE_ID;
         (doc.head || doc.documentElement).appendChild(style);
       }
+      // DSH claims unowned styles for the next materialized module, then removes
+      // them with that module. The instance token alone does not identify our package.
+      style.setAttribute('data-plugin', 'dsh-model-organizer');
       style.setAttribute(STYLE_OWNER_ATTR, token);
       style.textContent = buildCss();
     }
@@ -853,6 +953,7 @@ window.__ModuleLoader__.load({
         close: ['M6 6l12 12M18 6L6 18'],
         search: ['M21 21l-5-5', 'M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0'],
         manage: ['M4 7h16M4 17h16', 'M9 4v6M15 14v6'],
+        sort: ['M4 6h16M4 12h11M4 18h6', 'M18 11v9m-3-3 3 3 3-3'],
         check: ['M5 12l4 4L19 6'],
         chevron: ['M9 5l7 7-7 7'],
         star: ['M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z'],
@@ -888,7 +989,7 @@ window.__ModuleLoader__.load({
     function isTextEntry(node) {
       if (!node || typeof node.tagName !== 'string') return false;
       const tag = node.tagName.toLowerCase();
-      if (tag === 'textarea') return true;
+      if (tag === 'textarea' || tag === 'select') return true;
       if (tag !== 'input') return false;
       const type = (node.getAttribute('type') || 'text').toLowerCase();
       return type === 'text' || type === 'search' || type === 'url' || type === 'email' || type === 'password' || type === 'number';
@@ -994,7 +1095,7 @@ window.__ModuleLoader__.load({
           buttonIdentities.set(buttons[j], { key: key, legacyKey: legacyKey });
           const selected = isChecked(buttons[j]);
           if (selected) selectedKey = key;
-          items.push({ key: key, name: name, button: buttons[j], selected: selected, legacyKeys: legacyKeys });
+          items.push({ key: key, name: name, modelId: model ? model.id : '', button: buttons[j], selected: selected, legacyKeys: legacyKeys });
           choices += 1;
         }
         const identity = group ? group.id : providerIdentities.get(section) || label;
@@ -1152,6 +1253,13 @@ window.__ModuleLoader__.load({
       let providerQuery = '';
       let editingAlias = null;
       let manageFilter = 'all';
+      let searchAll = false;
+      const viewMemory = new Map();
+      function rememberView() {
+        if (panel.hidden) return;
+        viewMemory.set(openProviderIdentity || openProvider || 'overview', { query: query, searchAll: searchAll, scrollTop: listEl.scrollTop });
+        if (viewMemory.size > 100) viewMemory.delete(viewMemory.keys().next().value);
+      }
       const originalSearchAttrs = new Map();
       /** 所有被我们写过属性的元素，卸载时统一还原。 */
       const touched = [];
@@ -1187,36 +1295,31 @@ window.__ModuleLoader__.load({
       function buildPanel() {
         panel.textContent = '';
         titleEl = el(doc, 'div', { class: 'mo-title', text: '模型' });
-        const head = el(doc, 'div', { class: 'mo-head' }, [
-          // 总览入口：置顶 / 最近 / 来源列表都从这里进（否则置顶与最近无处可看）
+        const sortButton = el(doc, 'button', { class: 'mo-btn mo-iconbtn mo-sort-trigger', type: 'button', 'data-act': 'sort-menu', 'aria-label': '模型排序', 'aria-expanded': 'false', title: '排序：默认顺序' }, [icon(doc, 'sort')]);
+        panel.appendChild(el(doc, 'div', { class: 'mo-head' }, [
           el(doc, 'button', { class: 'mo-btn mo-iconbtn', type: 'button', title: '总览：置顶 · 最近 · 来源', 'aria-label': '模型总览', 'data-act': 'overview' }, [icon(doc, 'overview')]),
-          titleEl,
+          titleEl, el(doc, 'span', { class: 'mo-summary' }),
           el(doc, 'button', { class: 'mo-btn mo-all', type: 'button', text: '全部来源', title: '整理全部来源的模型', 'data-act': 'manage-all', hidden: true }),
-          el(doc, 'button', { class: 'mo-btn mo-iconbtn', type: 'button', title: '关闭', 'aria-label': '关闭模型面板', 'data-act': 'close' }, [icon(doc, 'close')]),
-        ]);
-        const toolbar = el(doc, 'div', { class: 'mo-toolbar' }, [
-          el(doc, 'span', { class: 'mo-summary' }),
-          el(doc, 'button', { class: 'mo-btn mo-managebtn', type: 'button', title: '整理：置顶 / 隐藏 / 别名', 'data-act': 'manage' }, [icon(doc, 'manage'), el(doc, 'span', { text: '整理' })]),
+          sortButton,
+          el(doc, 'button', { class: 'mo-btn mo-iconbtn mo-managebtn', type: 'button', title: '整理：置顶 / 隐藏 / 别名', 'aria-label': '整理模型', 'data-act': 'manage' }, [icon(doc, 'manage'), el(doc, 'span', { class: 'mo-sr-only', text: '整理' })]),
           el(doc, 'button', { class: 'mo-btn mo-managebtn', type: 'button', text: '完成', 'data-act': 'manage-off', hidden: true }),
-        ]);
-        searchInput = el(doc, 'input', {
-          class: 'mo-search',
-          type: 'text',
-          placeholder: '搜索模型或别名…',
-          'aria-label': '搜索模型',
-        });
-        listEl = el(doc, 'div', { class: 'mo-list' });
-        footEl = el(doc, 'div', { class: 'mo-foot' });
-        panel.appendChild(head);
-        panel.appendChild(toolbar);
+          el(doc, 'button', { class: 'mo-btn mo-iconbtn', type: 'button', title: '关闭', 'aria-label': '关闭模型面板', 'data-act': 'close' }, [icon(doc, 'close')]),
+        ]));
+        searchInput = el(doc, 'input', { class: 'mo-search', type: 'text', placeholder: '搜索模型、别名或 ID…', 'aria-label': '搜索模型' });
+        panel.appendChild(el(doc, 'div', { class: 'mo-search-wrap' }, [
+          el(doc, 'div', { class: 'mo-scope', role: 'group', 'aria-label': '搜索范围' }, ['local', 'all'].map(function (scope) {
+            return el(doc, 'button', { class: 'mo-btn', type: 'button', 'data-act': 'search-scope', 'data-scope': scope, 'aria-label': scope === 'all' ? '全部厂商' : '当前厂商', title: scope === 'all' ? '搜索全部厂商' : '搜索当前厂商', text: scope === 'all' ? '全局' : '厂商' });
+          })), searchInput,
+          el(doc, 'button', { class: 'mo-btn mo-iconbtn mo-clear', type: 'button', title: '清空搜索', 'aria-label': '清空搜索', 'data-act': 'clear-search', hidden: true }, [icon(doc, 'close')]),
+        ]));
         panel.appendChild(el(doc, 'div', { class: 'mo-filters', role: 'group', 'aria-label': '整理筛选', hidden: true }, ['all', 'pinned', 'hidden'].map(function (filter) {
           return el(doc, 'button', { class: 'mo-btn', type: 'button', text: { all: '全部', pinned: '已置顶', hidden: '已隐藏' }[filter], 'data-act': 'manage-filter', 'data-filter': filter });
         })));
-        panel.appendChild(el(doc, 'div', { class: 'mo-search-wrap' }, [icon(doc, 'search'), searchInput,
-          el(doc, 'button', { class: 'mo-btn mo-iconbtn mo-clear', type: 'button', title: '清空搜索', 'aria-label': '清空搜索', 'data-act': 'clear-search', hidden: true }, [icon(doc, 'close')]),
-        ]));
-        panel.appendChild(listEl);
-        panel.appendChild(footEl);
+        listEl = el(doc, 'div', { class: 'mo-list' }); footEl = el(doc, 'div', { class: 'mo-foot' });
+        panel.append(listEl, footEl);
+        panel.appendChild(el(doc, 'div', { class: 'mo-sort-menu', role: 'group', 'aria-label': '排序选项', hidden: true }, [
+          ['default', '默认顺序'], ['name', '名称 A → Z'], ['price-asc', '倍率 低 → 高'], ['price-desc', '倍率 高 → 低'],
+        ].map(item => el(doc, 'button', { class: 'mo-btn', type: 'button', 'data-act': 'sort-order', 'data-order': item[0], 'aria-pressed': 'false', text: item[1] }))));
       }
 
       /** 固定面板位置：优先贴菜单右侧，放不下就贴左侧。 */
@@ -1275,6 +1378,8 @@ window.__ModuleLoader__.load({
               key: item.key,
               provider: provider.label,
               name: item.name,
+              modelId: item.modelId,
+              providerIdentity: provider.identity,
               label: resolveLabel(state.aliases, item.key, item.name),
               selected: item.selected,
               button: item.button,
@@ -1511,7 +1616,7 @@ window.__ModuleLoader__.load({
       // ── 面板渲染 ──
 
       /** 渲染一行模型。 */
-      function modelRow(entry) {
+      function modelRow(entry, groupedProvider) {
         const actions = [];
           actions.push(el(doc, 'button', {
             class: 'mo-btn mo-iconbtn mo-pinbtn' + (managing ? '' : ' mo-quick-pin'), type: 'button',
@@ -1531,11 +1636,11 @@ window.__ModuleLoader__.load({
           }, entry.hidden ? [el(doc, 'span', { text: '恢复' })] : [icon(doc, 'hide')]));
         }
         const subParts = [];
-        if (openProvider === null) subParts.push(entry.provider);
-        if (entry.label !== entry.name) subParts.push(entry.name);
+        if (openProvider === null && !groupedProvider) subParts.push(entry.provider);
         const sub = subParts.join(' · ');
         const main = el(doc, 'div', { class: 'mo-row-main' }, [
-          el(doc, 'span', { class: 'mo-row-name', text: entry.label }),
+          el(doc, 'span', { class: 'mo-label-line' }, [el(doc, 'span', { class: 'mo-row-name', text: entry.label }),
+            entry.label !== entry.name ? el(doc, 'span', { class: 'mo-alias-mark', text: '✎', title: '自定义名称', 'aria-label': '自定义名称' }) : null]),
           sub === '' ? null : el(doc, 'span', { class: 'mo-row-sub', text: sub }),
         ]);
         const row = el(doc, 'button', {
@@ -1548,7 +1653,7 @@ window.__ModuleLoader__.load({
           // 把**原始模型名**存在行上，供清空别名时精确还原。
           // 不要从 data-key 反解：key 是 JSON 编码的 [来源, 模型]，语义上不可切分。
           'data-name': entry.name,
-          title: entry.disabled ? entry.provider + ' / ' + entry.name + '（内核忙，暂不可选）' : entry.provider + ' / ' + entry.name,
+          title: entry.provider + ' / ' + entry.name + (entryModelId(entry) ? '\n模型 ID：' + entryModelId(entry) : '') + (entry.disabled ? '（内核忙，暂不可选）' : ''),
         }, [main, entry.hidden ? el(doc, 'span', { class: 'mo-count', text: '已隐藏' }) : entry.selected ? icon(doc, 'check', 'mo-selected') : null]);
         // 操作按钮与选择按钮并列，避免嵌套 button 导致键盘/焦点行为不稳定。
         const line = el(doc, 'div', { class: 'mo-model-line', 'data-selected': entry.selected ? '1' : null }, [row, el(doc, 'span', { class: 'mo-actions' }, actions)]);
@@ -1582,6 +1687,41 @@ window.__ModuleLoader__.load({
           el(doc, 'span', { class: 'mo-count', text: count + ' 个' }),
           icon(doc, 'chevron', 'mo-chevron'),
         ]);
+      }
+
+      function appendModelGroups(target, entries, providerIdentity, groupedProvider, global) {
+        const families = new Map();
+        for (const entry of entries) {
+          const family = state.groupSeries ? modelSeries(entry) : '';
+          if (!families.has(family)) families.set(family, []);
+          families.get(family).push(entry);
+        }
+        for (const [family, models] of families) {
+          let container = target;
+          if (family && !(global && families.size === 1)) {
+            const key = JSON.stringify([providerIdentity, family]);
+            const collapsed = normalizeQuery(query) === '' && state.collapsedSeries.includes(key);
+            const group = el(doc, 'div', { class: 'mo-series', 'data-family': family });
+            const heading = el(doc, 'button', { class: 'mo-series-heading', type: 'button', 'data-act': 'series', 'data-key': key, 'aria-expanded': collapsed ? 'false' : 'true', disabled: normalizeQuery(query) !== '', title: normalizeQuery(query) !== '' ? '搜索时自动展开；清空搜索后可折叠' : '展开或折叠系列', 'aria-label': family + ' 系列，' + models.length + ' 个模型' }, [icon(doc, 'chevron', 'mo-chevron'), el(doc, 'span', { text: family }), el(doc, 'span', { class: 'mo-group-count', text: String(models.length) })]);
+            container = el(doc, 'div', { class: 'mo-series-models', hidden: collapsed });
+            group.append(heading, container); target.appendChild(group);
+          }
+          for (const entry of orderEntries(models, state.sortOrder, normalizeQuery(query), state.aliases)) container.appendChild(modelRow(entry, groupedProvider));
+        }
+      }
+
+      function appendProviderGroups(entries, snapshot, global) {
+        let count = 0;
+        for (const provider of snapshot.providers) {
+          const models = entries.filter(entry => entry.providerIdentity ? entry.providerIdentity === provider.identity : entry.provider === provider.label);
+          if (!models.length) continue;
+          count++;
+          const group = el(doc, 'section', { class: global ? 'mo-result-provider' : 'mo-provider-models', 'aria-label': provider.label });
+          if (global) group.appendChild(el(doc, 'div', { class: 'mo-provider-heading' }, [el(doc, 'span', { text: provider.label }), el(doc, 'span', { class: 'mo-group-count', text: String(models.length) })]));
+          appendModelGroups(group, models, provider.identity, true, global);
+          listEl.appendChild(group);
+        }
+        return count;
       }
 
       /** 渲染面板内容。 */
@@ -1629,13 +1769,23 @@ window.__ModuleLoader__.load({
         }
         const all = visibleEntries();
         const normalized = normalizeQuery(query);
-        const scopeItems = snapshot.providers.filter(function (provider) { return openProvider === null || provider.label === openProvider; }).flatMap(function (provider) { return provider.items; });
+        const scopeItems = snapshot.providers.filter(function (provider) { return openProvider === null || searchAll || provider.label === openProvider; }).flatMap(function (provider) { return provider.items; });
         const hiddenCount = scopeItems.filter(function (item) { return state.hidden.indexOf(item.key) >= 0; }).length;
-        const viewKey = JSON.stringify([managing, openProvider, normalized, manageFilter]);
+        const viewKey = JSON.stringify([managing, openProviderIdentity, openProvider, searchAll, normalized, manageFilter, state.sortOrder, state.groupSeries]);
         const scrollTop = viewKey === previousView ? listEl.scrollTop : 0;
         previousView = viewKey;
         searchInput.value = query;
-        searchInput.placeholder = openProvider === null ? '搜索模型或别名…' : '搜索该厂商的模型或别名…';
+        titleEl.title = openProvider === null ? '模型总览' : openProvider;
+        searchInput.placeholder = '搜索模型、别名或 ID…';
+        const sortLabel = { default: '默认顺序', name: '名称 A → Z', 'price-asc': '倍率 低 → 高', 'price-desc': '倍率 高 → 低' }[state.sortOrder];
+        panel.querySelector('.mo-sort-trigger').title = '排序：' + sortLabel + '（组内排序；倍率不等同实际费用）';
+        panel.querySelector('.mo-sort-trigger').setAttribute('data-on', state.sortOrder === 'default' ? '0' : '1');
+        panel.querySelectorAll('[data-act="sort-order"]').forEach(button => button.setAttribute('aria-pressed', button.getAttribute('data-order') === state.sortOrder ? 'true' : 'false'));
+        panel.querySelectorAll('[data-act="search-scope"]').forEach(function (button) {
+          const all = button.getAttribute('data-scope') === 'all';
+          button.disabled = !all && openProvider === null;
+          button.setAttribute('aria-pressed', (all ? openProvider === null || searchAll : openProvider !== null && !searchAll) ? 'true' : 'false');
+        });
         panel.querySelector('.mo-summary').textContent = openProvider === null ? '常用模型与厂商' : (managing ? scopeItems.length + ' 个模型' : scopeItems.length - hiddenCount + ' 个可见模型');
         panel.querySelector('.mo-filters').hidden = !managing;
         panel.querySelectorAll('[data-act="manage-filter"]').forEach(function (button) {
@@ -1649,7 +1799,7 @@ window.__ModuleLoader__.load({
         footEl.textContent = '';
 
         if (titleEl !== null) {
-          titleEl.textContent = managing ? (openProvider === null ? '整理模型' : openProvider) : openProvider === null ? '模型' : openProvider;
+          titleEl.textContent = managing ? (openProvider === null ? '整理模型' : openProvider) : searchAll ? '全部模型' : openProvider === null ? '模型' : openProvider;
         }
 
         const manageButton = panel.querySelector('[data-act="manage"]');
@@ -1660,71 +1810,26 @@ window.__ModuleLoader__.load({
         if (managing) manageButton.setAttribute('data-on', '1');
         else manageButton.removeAttribute('data-on');
 
-        // 厂商浮框始终限定来源；总览允许跨来源搜索，整理还包括隐藏项。
-        if (normalized !== '' && !managing) {
-          const hits = all.filter(function (entry) {
-            if (openProvider !== null && entry.provider !== openProvider) return false;
-            return matchesQuery({ key: entry.key, label: entry.label, raw: entry.name }, state.aliases, normalized);
+        const global = openProvider === null || searchAll;
+        const showModels = managing || normalized !== '' || openProvider !== null || searchAll;
+        if (showModels) {
+          let entries = all;
+          if (managing) {
+            entries = snapshot.providers.flatMap(provider => provider.items.map(item => ({
+              key: item.key, provider: provider.label, providerIdentity: provider.identity, modelId: item.modelId,
+              name: item.name, label: resolveLabel(state.aliases, item.key, item.name), selected: item.selected,
+              disabled: item.button.disabled === true, hidden: state.hidden.includes(item.key),
+            })));
+          }
+          entries = entries.filter(function (entry) {
+            if (!global && entry.provider !== openProvider) return false;
+            if (managing && manageFilter === 'pinned' && !state.favorites.includes(entry.key)) return false;
+            if (managing && manageFilter === 'hidden' && !state.hidden.includes(entry.key)) return false;
+            return !normalized || matchesQuery({ key: entry.key, raw: entry.name, modelId: entry.modelId }, state.aliases, normalized);
           });
-          if (hits.length === 0) {
-            listEl.appendChild(el(doc, 'div', { class: 'mo-empty', text: '没有匹配的模型' }));
-          } else {
-            const ranked = rankEntries(
-              hits.map(function (entry) {
-                return { key: entry.key, label: entry.label, raw: entry.name };
-              }),
-              state.aliases,
-              normalized
-            );
-            const byKey = {};
-            hits.forEach(function (entry) {
-              byKey[entry.key] = entry;
-            });
-            for (let i = 0; i < ranked.length; i++) {
-              listEl.appendChild(modelRow(byKey[ranked[i].key]));
-            }
-          }
-        } else if (managing) {
-          // 从来源进入时只整理该来源；总览与「全部来源」入口可整理全部。
-          const everything = [];
-          for (let i = 0; i < snapshot.providers.length; i++) {
-            const provider = snapshot.providers[i];
-            if (openProvider !== null && provider.label !== openProvider) continue;
-            for (let j = 0; j < provider.items.length; j++) {
-              const item = provider.items[j];
-              const label = resolveLabel(state.aliases, item.key, item.name);
-              if (manageFilter === 'pinned' && state.favorites.indexOf(item.key) < 0) continue;
-              if (manageFilter === 'hidden' && state.hidden.indexOf(item.key) < 0) continue;
-              if (normalized !== '' && !matchesQuery({ key: item.key, label: label, raw: item.name }, state.aliases, normalized)) continue;
-              everything.push({
-                key: item.key,
-                provider: provider.label,
-                name: item.name,
-                label: label,
-                selected: item.selected,
-                disabled: item.button.disabled === true,
-                hidden: state.hidden.indexOf(item.key) >= 0,
-              });
-            }
-          }
-          if (everything.length === 0) listEl.appendChild(el(doc, 'div', { class: 'mo-empty', text: '没有匹配的模型' }));
-          for (let i = 0; i < everything.length; i++) {
-            const entry = everything[i];
-            listEl.appendChild(modelRow(entry));
-          }
-        } else if (openProvider !== null) {
-          // 单个来源的模型
-          const provider = snapshot.providers.filter(function (item) {
-            return item.label === openProvider;
-          })[0];
-          const entries = all.filter(function (entry) {
-            return entry.provider === openProvider;
-          });
-          if (!provider || entries.length === 0) {
-            listEl.appendChild(el(doc, 'div', { class: 'mo-empty', text: '这个来源没有可用模型' }));
-          } else {
-            for (let i = 0; i < entries.length; i++) listEl.appendChild(modelRow(entries[i]));
-          }
+          const providers = appendProviderGroups(entries, snapshot, global);
+          if (!entries.length) listEl.appendChild(el(doc, 'div', { class: 'mo-empty', text: normalized || managing ? '没有匹配的模型' : '这个来源没有可用模型' }));
+          panel.querySelector('.mo-summary').textContent = global ? providers + ' 个厂商 · ' + entries.length + ' 个模型' : entries.length + (normalized || managing ? ' 结果' : ' 模型');
         } else {
           // 总览：置顶 → 最近 → 来源
           const byKey = {};
@@ -1763,7 +1868,6 @@ window.__ModuleLoader__.load({
         }
         // 没有内容时整条底栏不占位（否则会留一条空白 + 多余间距）。
         footEl.hidden = footEl.childNodes.length === 0;
-        if (normalized !== '' || (managing && manageFilter !== 'all')) panel.querySelector('.mo-summary').textContent = listEl.querySelectorAll('[data-act="choose"]').length + ' 个结果';
         listEl.scrollTop = scrollTop;
         placePanel();
       }
@@ -1771,24 +1875,26 @@ window.__ModuleLoader__.load({
       /** 打开面板。 */
       function openPanel(providerKey) {
         const nextProvider = providerKey === undefined ? null : providerKey;
-        if (nextProvider !== openProvider) { query = ''; managing = false; editingAlias = null; manageFilter = 'all'; }
+        const changed = panel.hidden || nextProvider !== openProvider;
+        if (changed) rememberView();
         openProvider = nextProvider;
-        const provider = menuEl === null || nextProvider === null ? null : snapshotOf(menuEl).providers.find(function (item) { return item.label === nextProvider; });
+        const provider = menuEl === null || nextProvider === null ? null : snapshotOf(menuEl).providers.find(item => item.label === nextProvider);
         openProviderIdentity = provider ? provider.identity : null;
+        const previous = changed ? viewMemory.get(openProviderIdentity || openProvider || 'overview') : null;
+        if (changed) { query = previous ? previous.query : ''; searchAll = previous ? previous.searchAll : false; managing = false; editingAlias = null; manageFilter = 'all'; }
         panel.hidden = false;
         renderPanel();
+        if (previous) listEl.scrollTop = previous.scrollTop;
         placePanel();
       }
 
-      /** 关闭面板。 */
       function closePanel() {
+        rememberView();
         panel.hidden = true;
-        openProvider = null;
-        openProviderIdentity = null;
-        managing = false;
-        query = '';
-        editingAlias = null;
-        manageFilter = 'all';
+        panel.querySelector('.mo-sort-menu').hidden = true; panel.querySelector('.mo-sort-trigger').setAttribute('aria-expanded', 'false');
+        openProvider = null; openProviderIdentity = null;
+        managing = false; query = ''; searchAll = false;
+        editingAlias = null; manageFilter = 'all';
       }
 
       /** 让菜单进入「已整理」状态（打作用域、写属性、应用折叠）。 */
@@ -2067,6 +2173,8 @@ window.__ModuleLoader__.load({
           return;
         }
         if (!panel.hidden && isInsidePanel(event.target)) {
+          const sortMenu = panel.querySelector('.mo-sort-menu');
+          if (event.key === 'Escape' && !sortMenu.hidden) { event.preventDefault(); event.stopPropagation(); sortMenu.hidden = true; panel.querySelector('.mo-sort-trigger').setAttribute('aria-expanded', 'false'); panel.querySelector('.mo-sort-trigger').focus(); return; }
           if (event.target.getAttribute && event.target.getAttribute('data-act') === 'alias' && event.key === 'Enter' && !event.isComposing) {
             event.preventDefault(); event.stopPropagation(); editingAlias = null; renderPanel(); searchInput.focus(); return;
           }
@@ -2084,7 +2192,7 @@ window.__ModuleLoader__.load({
           const inSearch = event.target === searchInput;
           const inModel = event.target.getAttribute && event.target.getAttribute('data-act') === 'choose';
           if ((inSearch || inModel) && !event.isComposing && (event.key === 'ArrowDown' || event.key === 'ArrowUp' || (inSearch && event.key === 'Enter' && normalizeQuery(query) !== ''))) {
-            const rows = Array.prototype.slice.call(panel.querySelectorAll('[data-act="choose"]:not([data-disabled="1"])'));
+            const rows = Array.prototype.slice.call(panel.querySelectorAll('[data-act="choose"]:not([data-disabled="1"])')).filter(row => !row.closest('[hidden]'));
             event.preventDefault();
             event.stopPropagation();
             if (rows.length === 0) return;
@@ -2155,22 +2263,29 @@ window.__ModuleLoader__.load({
         if (!panel.contains(target)) return;
         const actNode = typeof target.closest === 'function' ? target.closest('[data-act]') : null;
         const act = actNode !== null ? actNode.getAttribute('data-act') : null;
-        if (act === null) return;
+        if (act === null) {
+          panel.querySelector('.mo-sort-menu').hidden = true;
+          panel.querySelector('.mo-sort-trigger').setAttribute('aria-expanded', 'false');
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
+        const sortMenu = panel.querySelector('.mo-sort-menu');
+        if (act === 'sort-menu') { sortMenu.hidden = !sortMenu.hidden; actNode.setAttribute('aria-expanded', sortMenu.hidden ? 'false' : 'true'); placePanel(); return; }
+        sortMenu.hidden = true; panel.querySelector('.mo-sort-trigger').setAttribute('aria-expanded', 'false');
+        if (act === 'sort-order') { state.sortOrder = actNode.getAttribute('data-order'); saveState(); renderPanel(); panel.querySelector('.mo-sort-trigger').focus(); return; }
         if (act === 'close') {
           closePanel();
           return;
         }
-        if (act === 'overview') {
-          openProvider = null;
-          openProviderIdentity = null;
-          managing = false;
-          editingAlias = null;
-          manageFilter = 'all';
-          query = '';
-          renderPanel();
-          placePanel();
+        if (act === 'overview') { openPanel(null); return; }
+        if (act === 'search-scope') { searchAll = actNode.getAttribute('data-scope') === 'all'; editingAlias = null; renderPanel(); searchInput.focus(); return; }
+        if (act === 'series') {
+          const key = actNode.getAttribute('data-key');
+          // Search always reveals all matches; don't silently hide search hits.
+          if (normalizeQuery(query) !== '') return;
+          state.collapsedSeries = toggleInList(state.collapsedSeries, key, 256); saveState(); renderPanel();
+          for (const button of panel.querySelectorAll('[data-act="series"]')) if (button.getAttribute('data-key') === key) { button.focus({ preventScroll: true }); break; }
           return;
         }
         if (act === 'manage') {
@@ -2290,6 +2405,9 @@ window.__ModuleLoader__.load({
               // 从行上的 data-name 取原始模型名（而不是从 key 反解 —— 见 modelRow 的注释）。
               const original = row.getAttribute('data-name') || key;
               nameNode.textContent = resolveLabel(state.aliases, key, original);
+              const mark = row.querySelector('.mo-alias-mark');
+              if (mark) mark.remove();
+              if (nameNode.textContent !== original) nameNode.parentElement.appendChild(el(doc, 'span', { class: 'mo-alias-mark', text: '✎', title: '自定义名称', 'aria-label': '自定义名称' }));
             }
           }
         }
@@ -2459,6 +2577,17 @@ window.__ModuleLoader__.load({
       "settings.note": "修改立即生效，偏好仅保存在当前浏览器。",
       "settings.fontSize": "面板字号",
       "settings.fontSizeHint": "只调整模型浮框，宿主界面保持原字号。",
+      "settings.browse": "浏览与排序",
+      "settings.series": "按模型系列分组",
+      "settings.seriesHint": "系列可折叠；搜索时自动展开，别名不改变归属。",
+      "settings.sort": "默认排序",
+      "settings.sortHint": "排序作用在组内；未知倍率放最后，倍率不等同实际费用。",
+      "settings.default": "默认顺序",
+      "settings.name": "名称 A → Z",
+      "settings.asc": "倍率 低 → 高",
+      "settings.desc": "倍率 高 → 低",
+      "settings.on": "开启",
+      "settings.off": "关闭",
       "settings.preview": "字号预览",
       "settings.previewProvider": "示例厂商 · 已置顶",
       "settings.data": "本地记录",
@@ -2478,7 +2607,7 @@ window.__ModuleLoader__.load({
       "settings.restored": "模型记录已恢复。",
       "settings.help": "搜索与整理怎么用",
       "settings.helpProvider": "菜单搜索找厂商；划过或点击厂商，打开该厂商的模型浮框。",
-      "settings.helpModels": "浮框搜索匹配当前厂商的模型名称与别名；左上角四格按钮进入总览，可跨厂商搜索。",
+      "settings.helpModels": "浮框可切换当前/全部厂商，搜索原名、别名或模型 ID。全局结果按厂商分层，搜索时展开命中的系列。",
       "settings.helpManage": "在「整理」里置顶、隐藏和改名，用「已隐藏」筛选找回模型。",
       "settings.helpKeys": "搜索时按 Esc 先清空查询，再按一次关闭；方向键选择，回车确认。"
     };
@@ -2486,6 +2615,17 @@ window.__ModuleLoader__.load({
       "settings.note": "Changes apply immediately. Preferences stay in this browser.",
       "settings.fontSize": "Panel font size",
       "settings.fontSizeHint": "Adjusts model flyouts only; the host keeps its font size.",
+      "settings.browse": "Browsing and sorting",
+      "settings.series": "Group models by family",
+      "settings.seriesHint": "Collapse families; searching reveals matches. Aliases keep their family.",
+      "settings.sort": "Default sorting",
+      "settings.sortHint": "Sort within groups. Unknown multipliers come last; multipliers are not actual fees.",
+      "settings.default": "Default order",
+      "settings.name": "Name A → Z",
+      "settings.asc": "Multiplier low → high",
+      "settings.desc": "Multiplier high → low",
+      "settings.on": "On",
+      "settings.off": "Off",
       "settings.preview": "Font preview",
       "settings.previewProvider": "Sample provider · Pinned",
       "settings.data": "Local records",
@@ -2505,7 +2645,7 @@ window.__ModuleLoader__.load({
       "settings.restored": "Model records restored.",
       "settings.help": "Search and organize",
       "settings.helpProvider": "Search the menu for providers; hover or click a provider to open its models.",
-      "settings.helpModels": "Flyout search matches names and aliases in that provider. The grid button opens the overview to search across providers.",
+      "settings.helpModels": "Choose current or all providers; search names, aliases or model IDs. Global results keep provider headings and reveal matched families.",
       "settings.helpManage": "Use Organize to pin, hide or rename. The Hidden filter lets you restore models.",
       "settings.helpKeys": "Escape clears a query first, then closes. Use arrow keys to navigate and Enter to select."
     };
@@ -2563,6 +2703,7 @@ window.__ModuleLoader__.load({
         const token = String(Date.now()) + '-' + String(Math.random());
         let style = document.getElementById(id);
         if (!style) { style = document.createElement('style'); style.id = id; document.head.appendChild(style); }
+        style.setAttribute('data-plugin', 'dsh-model-organizer');
         style.setAttribute('data-owner', token);
         style.textContent = buildSettingsCss();
         return function () {
@@ -2599,7 +2740,7 @@ window.__ModuleLoader__.load({
           return;
         }
         writeState(Object.assign({}, current, {
-          favorites: backup.favorites, recents: backup.recents, hidden: backup.hidden, aliases: backup.aliases,
+          favorites: backup.favorites, recents: backup.recents, hidden: backup.hidden, aliases: backup.aliases, collapsedSeries: backup.collapsedSeries,
         }));
         setBackup(null);
         setNotice('settings.restored');
@@ -2623,6 +2764,18 @@ window.__ModuleLoader__.load({
           h('div', { className: 'mo-preview', 'aria-label': t('settings.preview'), style: { fontSize: settings.fontSize + 'px' } },
             h('div', null, h('div', null, 'DeepSeek-V4.1-Flash'), h('div', { className: 'mo-hint', style: { fontSize: '0.85em' } }, t('settings.previewProvider'))),
             h('span', { className: 'mo-preview-star', 'aria-hidden': true }, '★'))),
+        h('section', { className: 'mo-card', 'aria-label': t('settings.browse') },
+          h('div', { className: 'mo-title' }, t('settings.browse')),
+          h('div', { className: 'mo-setting-row' },
+            h('div', { className: 'mo-setting-text' }, h('div', null, t('settings.series')), h('div', { className: 'mo-hint' }, t('settings.seriesHint'))),
+            h('button', { type: 'button', role: 'switch', 'aria-label': t('settings.series'), 'aria-checked': settings.groupSeries, onClick: () => updateSettings({ groupSeries: !settings.groupSeries }) }, t(settings.groupSeries ? 'settings.on' : 'settings.off'))),
+          h('div', { className: 'mo-setting-row' }, h('span', null, t('settings.sort')),
+            h('select', { 'aria-label': t('settings.sort'), value: settings.sortOrder, onChange: event => updateSettings({ sortOrder: event.target.value }) },
+              ...[['default', 'default'], ['name', 'name'], ['price-asc', 'asc'], ['price-desc', 'desc']].map(item => h('option', { key: item[0], value: item[0] }, t('settings.' + item[1]))))),
+          h('div', { className: 'mo-tree-preview', 'aria-label': t('settings.preview') },
+            settings.groupSeries ? h('div', { className: 'mo-hint' }, '▾ DeepSeek · 2') : null,
+            ...['DeepSeek-V4.1-Flash · x0.11', 'DeepSeek-V4-Pro · x0.51'].map(name => h('div', { key: name, className: settings.groupSeries ? 'mo-tree-model' : '' }, name))),
+          h('div', { className: 'mo-hint' }, t('settings.sortHint'))),
         h('section', { className: 'mo-card', 'aria-label': t('settings.data') },
           h('div', { className: 'mo-setting-text' }, h('div', { className: 'mo-title' }, t('settings.data')),
             h('div', { className: 'mo-hint' }, t('settings.dataHint'))),
