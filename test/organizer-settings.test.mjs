@@ -29,7 +29,7 @@ async function renderCard(env, props) {
 
 /** 按可见文本找按钮。 */
 function buttonByText(container, text) {
-  return Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === text)[0];
+  return Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === text || b.getAttribute('aria-label') === text)[0];
 }
 
 test('★ 注册契约：槽位名/key/locale 都必须是官方约定', async () => {
@@ -167,7 +167,7 @@ test('★ 反向同步：菜单里点置顶 → 设置页不报错且读到最�
 
   assert.ok(stateOf(env).favorites.length > 0, '置顶应写入');
   // 设置页仍应正常渲染（订阅刷新不抛错）
-  assert.ok(card.container.textContent.includes('面板字号'), '设置页应保持可用');
+  assert.ok(card.container.textContent.includes('浮框字号'), '设置页应保持可用');
   assert.equal(card.container.querySelector('.mo-stat strong').textContent, String(stateOf(env).favorites.length));
   card.unmount();
   env.dispose();
@@ -177,7 +177,7 @@ test('词典：zh/en 键集一致，且组件在缺 t 时兜底中文', async ()
   const env = createPluginEnv();
   // 不带 t 渲染 → 兜底中文
   const card = await renderCard(env, { view: 'page' });
-  assert.ok(card.container.textContent.includes('面板字号'), '缺词典时应兜底中文');
+  assert.ok(card.container.textContent.includes('浮框字号'), '缺词典时应兜底中文');
   card.unmount();
   // 带 t 渲染 → 用宿主取词
   const card2 = await renderCard(env, {
@@ -207,13 +207,13 @@ test('字号预览标记当前选项；无记录时清空不可用', async () =>
   const env = createPluginEnv();
   const card = await renderCard(env);
   const selected = card.container.querySelector('.mo-options [aria-pressed="true"]');
-  assert.equal(selected.textContent, '13');
+  assert.equal(selected.getAttribute('aria-label'), '13');
   assert.equal(card.container.querySelector('.mo-preview').style.fontSize, '13px');
   assert.equal(buttonByText(card.container, '清空').disabled, true);
   buttonByText(card.container, '12').click();
   await settle(env.window, 100);
   assert.equal(card.container.querySelector('.mo-preview').style.fontSize, '12px');
-  assert.equal(card.container.querySelector('.mo-options [aria-pressed="true"]').textContent, '12');
+  assert.equal(card.container.querySelector('.mo-options [aria-pressed="true"]').getAttribute('aria-label'), '12');
   card.unmount(); env.dispose();
 });
 
@@ -250,7 +250,7 @@ test('设置槽独立持有样式，旧卡卸载不移除新卡的样式', async
   const first = await renderCard(env);
   const second = await renderCard(env);
   const style = () => env.document.getElementById('dsh-model-organizer-settings-style');
-  assert.ok(style().textContent.includes('.mo-settings .mo-card'));
+  assert.ok(style().textContent.includes('.mo-settings .mo-hero'));
   first.unmount();
   assert.ok(style(), '旧设置卡清理必须保留新卡样式');
   second.unmount();

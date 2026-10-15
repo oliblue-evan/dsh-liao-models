@@ -166,3 +166,24 @@ export function mountSettingsCard(env, props = { view: 'page' }) {
 export function settle(window, ms = 200) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
+
+/** Choose through the actual custom dropdown, including its portal and controlled save. */
+export async function chooseSetting(env, root, label, value) {
+  const candidates=[...root.querySelectorAll('[role="combobox"],[role="group"][data-setting],[role="switch"][data-value]')];
+  const trigger=candidates.find(node=>node.getAttribute('aria-label')===label);
+  if(!trigger)throw new Error('Missing setting: '+label);
+  for(let parent=trigger.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+  if(trigger.getAttribute('role')==='group') {
+    const option=[...trigger.querySelectorAll('button')].find(node=>node.dataset.value===String(value));
+    if(!option||option.disabled)throw new Error('Unavailable choice: '+label+' / '+value);
+    option.click();await settle(env.window,10);return;
+  }
+  if(trigger.getAttribute('role')==='switch') {
+    if(trigger.dataset.value!==String(value))trigger.click();await settle(env.window,10);return;
+  }
+  trigger.click();await settle(env.window,10);
+  const menu=env.document.getElementById(trigger.getAttribute('aria-controls'));
+  const option=menu&&[...menu.querySelectorAll('[role="option"]')].find(node=>node.dataset.value===String(value));
+  if(!option)throw new Error('Missing choice: '+label+' / '+value);
+  option.click();await settle(env.window,10);
+}

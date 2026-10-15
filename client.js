@@ -64,6 +64,7 @@ window.__ModuleLoader__.load({
     // 模型菜单的增强仍是纯 DOM（那个菜单没有对应槽位，见文件头说明）。
     const React = require('react');
     const h = React.createElement;
+    const { createPortal } = require('react-dom');
     const { useState, useEffect, useLayoutEffect, useRef } = React;
 
     // #region 纯逻辑
@@ -78,7 +79,7 @@ window.__ModuleLoader__.load({
     /** 仅保留悬浮展开；旧 panel/list 偏好规范化为 hover。 */
     const MODES = ['hover'];
     /** 「最近使用」最多记几个。 */
-    const RECENTS_CAP = 8;
+    const RECENTS_CAP = 24;
     /** 置顶数量上限（防止把列表顶满）。 */
     const FAVORITES_CAP = 12;
     /** 别名长度上限。 */
@@ -87,6 +88,62 @@ window.__ModuleLoader__.load({
     const FONT_SIZES = [12, 13, 14];
     /** 面板字号默认值。 */
     const DEFAULT_FONT_SIZE = 13;
+    const BROWSE_DEFAULTS = {
+      density: 'standard', panelWidth: 360, panelHeight: 70, openOn: 'hover', hoverDelay: 0,
+      searchScope: 'last', reopen: 'continue', seriesState: 'remember',
+      showFavorites: true, showRecents: true, recentCount: 8, sortMode: 'shared',
+    };
+    const SORT_ORDERS = ['default', 'name', 'price-asc', 'price-desc'];
+    function browsePreferences(source) {
+      const result = {};
+      const choices = {
+        density: ['compact', 'standard', 'relaxed'], panelWidth: [300, 360, 440], panelHeight: [60, 70, 85],
+        openOn: ['hover', 'click'], hoverDelay: [0, 150, 300], searchScope: ['local', 'all', 'last'],
+        reopen: ['continue', 'clear'], seriesState: ['expanded', 'collapsed', 'remember'],
+        recentCount: [4, 8, 12], sortMode: ['shared', 'provider'],
+      };
+      for (const key of Object.keys(BROWSE_DEFAULTS)) {
+        result[key] = typeof BROWSE_DEFAULTS[key] === 'boolean' ? source[key] !== false
+          : choices[key].includes(source[key]) ? source[key] : BROWSE_DEFAULTS[key];
+      }
+      return result;
+    }
+    function cleanProviderSorts(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+      return Object.fromEntries(Object.entries(value).filter(([key, order]) => key && !['__proto__', 'constructor', 'prototype'].includes(key) && SORT_ORDERS.includes(order)).slice(0, 100));
+    }
+    function effectiveSort(state, provider) {
+      return state.sortMode === 'provider' && provider && state.providerSorts[provider] || state.sortOrder;
+    }
+    function makePreferenceBackup(state) {
+      return { format: 'dsh-model-organizer', version: 1, state: normalizeState(state) };
+    }
+    function readPreferenceBackup(text) {
+      if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('backup size');
+      const data = JSON.parse(text), value = data && data.state;
+      if (data.format !== 'dsh-model-organizer' || data.version !== 1 || !value || typeof value !== 'object' || Array.isArray(value) || value.version !== STATE_VERSION) throw new Error('backup format');
+      function validKey(key) {
+        if (typeof key !== 'string') return false;
+        try { const parts = JSON.parse(key); return Array.isArray(parts) && (parts.length === 2 || parts.length === 3 && parts[0] === 'id') && parts.every(part => typeof part === 'string' && part.length > 0); } catch { return false; }
+      }
+      for (const name of ['favorites', 'recents', 'hidden']) if (!Array.isArray(value[name]) || !value[name].every(validKey)) throw new Error('backup records');
+      if (!value.aliases || typeof value.aliases !== 'object' || Array.isArray(value.aliases) || !Object.entries(value.aliases).every(([key, alias]) => validKey(key) && typeof alias === 'string')) throw new Error('backup aliases');
+      return normalizeState(value);
+    }
+    function mergePreferenceBackup(current, incoming, mode) {
+      const local = normalizeState(current), next = normalizeState(incoming);
+      if (mode === 'replace') return next;
+      // Local visibility and aliases win conflicts. Display choices remain local on merge.
+      const known = new Set(local.favorites.concat(local.recents, Object.keys(local.aliases)));
+      const hidden = coerceStringArray(local.hidden.concat(next.hidden.filter(key => !known.has(key))), 0);
+      return normalizeState(Object.assign({}, local, {
+        favorites: coerceStringArray(local.favorites.concat(next.favorites), FAVORITES_CAP).filter(key => !hidden.includes(key)),
+        recents: coerceStringArray(local.recents.concat(next.recents), RECENTS_CAP),
+        aliases: Object.assign({}, next.aliases, local.aliases), hidden,
+        collapsedSeries: coerceStringArray(local.collapsedSeries.concat(next.collapsedSeries), 256),
+      }));
+    }
+
     /** 旧版（v1）键的分隔符，仅用于迁移。 */
     const LEGACY_KEY_SEP = '::';
 
@@ -163,6 +220,7 @@ window.__ModuleLoader__.load({
         groupSeries: true,
         sortOrder: 'default',
         collapsedSeries: [],
+        ...BROWSE_DEFAULTS, providerSorts: {},
       };
     }
 
@@ -187,18 +245,7 @@ window.__ModuleLoader__.load({
      */
     function resetUserData(state) {
       const base = normalizeState(state);
-      return {
-        version: STATE_VERSION,
-        mode: base.mode,
-        favorites: [],
-        recents: [],
-        aliases: {},
-        hidden: [],
-        fontSize: base.fontSize,
-        groupSeries: base.groupSeries,
-        sortOrder: base.sortOrder,
-        collapsedSeries: [],
-      };
+      return Object.assign({}, base, { favorites: [], recents: [], aliases: {}, hidden: [], collapsedSeries: [] });
     }
 
     /**
@@ -292,6 +339,7 @@ window.__ModuleLoader__.load({
         groupSeries: source.groupSeries !== false,
         sortOrder: ['default', 'name', 'price-asc', 'price-desc'].includes(source.sortOrder) ? source.sortOrder : 'default',
         collapsedSeries: coerceStringArray(source.collapsedSeries, 256),
+        ...browsePreferences(source), providerSorts: cleanProviderSorts(source.providerSorts),
       };
     }
 
@@ -573,6 +621,7 @@ window.__ModuleLoader__.load({
     /** 全局单例引用（热重载时先拆旧再建新）。 */
     let INSTANCE = null;
     let catalogContext = null;
+    let settingsManager = null;
     const buttonIdentities = new WeakMap();
     const providerIdentities = new WeakMap();
 
@@ -674,34 +723,92 @@ window.__ModuleLoader__.load({
      * @returns {string} 完整 CSS 文本。
      */
     function buildSettingsCss() {
-      return [
-        '.mo-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary,inherit);font-size:13px;line-height:1.5;}',
-        '.mo-settings .mo-card{border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:12px;padding:16px;display:grid;gap:12px;}',
-        '.mo-settings .mo-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}',
-        '.mo-settings .mo-setting-text{display:grid;gap:4px;flex:1;min-width:180px;}',
-        '.mo-settings .mo-title{font-weight:600;font-size:13px;}',
-        '.mo-settings .mo-hint{font-size:12px;color:var(--dsw-alias-label-tertiary,#9aa0a8);line-height:1.6;}',
-        '.mo-settings .mo-options{display:flex;gap:4px;padding:3px;border-radius:9px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));}',
-        '.mo-settings button{font:inherit;font-size:12px;min-height:32px;padding:6px 12px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:7px;background:transparent;color:inherit;cursor:pointer;}',
-        '.mo-settings button:disabled{opacity:.45;cursor:default;}',
-        '.mo-settings button:focus-visible,.mo-settings summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#6d91ff);outline-offset:3px;}',
-        '.mo-settings .mo-options button{border-color:transparent;min-width:46px;}',
-        '.mo-settings .mo-options button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18));color:var(--dsw-alias-brand-primary,#6d91ff);font-weight:600;}',
-        '.mo-settings .mo-preview{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:9px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));}',
-        '.mo-settings .mo-preview-star{color:var(--dsw-alias-brand-primary,#6d91ff);font-size:17px;}',
-        '.mo-settings select{font:inherit;font-size:12px;padding:6px 8px;max-width:180px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));border-radius:7px;background:var(--dsw-alias-bg-layer-2,#292a2e);color:inherit;}',
-        '.mo-settings [role="switch"][aria-checked="true"]{color:var(--dsw-alias-brand-primary,#6d91ff);background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));}',
-        '.mo-settings .mo-tree-preview{padding:10px 12px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));font-size:12px;line-height:1.9;}',
-        '.mo-settings .mo-tree-model{padding-left:16px;}',
-        '.mo-settings .mo-stats{display:flex;gap:8px;flex-wrap:wrap;}',
-        '.mo-settings .mo-stat{display:flex;align-items:baseline;gap:6px;padding:7px 10px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));}',
-        '.mo-settings .mo-stat strong{font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;}',
-        '.mo-settings .mo-danger{color:var(--dsw-alias-label-error,#e5484d);}',
-        '.mo-settings .mo-confirm{display:grid;gap:10px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));}',
-        '.mo-settings .mo-actions{display:flex;gap:8px;flex-wrap:wrap;}',
-        '.mo-settings details summary{cursor:pointer;font-weight:500;}',
-        '.mo-settings .mo-help{display:grid;gap:8px;padding-top:12px;}',
-      ].join('\n');
+      return `
+.mo-settings{container-type:inline-size;color:var(--dsw-alias-label-primary,inherit);font-size:12px;line-height:1.5;--mo-line:var(--dsw-alias-border-l2,rgba(127,127,127,.16));--mo-fill:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.07));--mo-accent:var(--dsw-alias-label-link,#7399f5);}
+.mo-settings *{box-sizing:border-box;}
+.mo-settings .mo-title{margin:0;font-size:12px;font-weight:600;}
+.mo-settings .mo-hint{font-size:11px;line-height:1.6;color:var(--dsw-alias-label-tertiary,#9aa0a8);}
+.mo-settings button{font:inherit;font-size:11px;min-height:28px;padding:4px 10px;border:1px solid var(--mo-line);border-radius:6px;background:transparent;color:inherit;cursor:pointer;}
+.mo-settings button:hover{background:var(--mo-fill);}
+.mo-settings button:disabled{opacity:.4;cursor:default;}
+.mo-settings :is(button,summary):focus-visible{outline:2px solid var(--mo-accent);outline-offset:2px;}
+.mo-settings .mo-section-head,.mo-settings .mo-setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.mo-settings .mo-section-head{margin-bottom:10px;}
+.mo-settings .mo-text-button{min-height:24px;padding:2px 4px;border:0;color:var(--dsw-alias-label-secondary,#aaa);}
+.mo-settings .mo-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:center;padding:14px;border:1px solid var(--mo-line);border-radius:10px;}
+.mo-settings .mo-preview-stage{min-width:0;}
+.mo-settings .mo-preview-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:7px;font-size:10px;color:var(--dsw-alias-label-tertiary,#9aa0a8);}
+.mo-settings .mo-preview{width:100%;padding:7px;border:1px solid var(--mo-line);border-radius:9px;background:var(--dsw-alias-bg-layer-3,#303136);line-height:1.5;}
+.mo-settings .mo-preview-top{display:flex;align-items:center;gap:8px;padding:0 5px 4px;font-size:.85em;}
+.mo-settings .mo-preview-top strong{flex:1;font-weight:500;}
+.mo-settings .mo-preview-count{font-size:.85em;opacity:.5;}
+.mo-settings .mo-preview-group{font-size:.8em;opacity:.6;padding:2px 5px;}
+.mo-settings .mo-preview-model{display:flex;align-items:center;gap:6px;min-height:38px;padding:8px;border-radius:6px;}
+.mo-settings .mo-preview-model[data-indented="true"]{margin-left:10px;}
+.mo-settings .mo-preview-model[data-selected="true"]{background:color-mix(in srgb,var(--mo-accent) 13%,transparent);}
+.mo-settings .mo-preview-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mo-settings .mo-preview-alias{font-size:.8em;opacity:.5;}
+.mo-settings .mo-preview-status{color:var(--mo-accent);white-space:nowrap;}
+.mo-settings .mo-preview[data-density="compact"] .mo-preview-model{min-height:30px;padding-top:4px;padding-bottom:4px;}
+.mo-settings .mo-preview[data-density="relaxed"] .mo-preview-model{min-height:46px;padding-top:12px;padding-bottom:12px;}
+.mo-settings .mo-common{display:grid;gap:3px;min-width:0;}
+.mo-settings .mo-form-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:34px;}
+.mo-settings .mo-control-label{font-size:11px;font-weight:400;white-space:nowrap;}
+.mo-settings .mo-form-row>.mo-select{width:164px;max-width:58%;}
+.mo-settings .mo-options{display:flex;flex:none;gap:2px;padding:2px;border-radius:6px;background:var(--mo-fill);}
+.mo-settings .mo-options button{min-width:30px;min-height:24px;padding:2px 7px;border-color:transparent;font-size:11px;white-space:nowrap;}
+.mo-settings .mo-options small{font-size:10px;opacity:.5;margin-left:2px;}
+.mo-settings .mo-options button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18));color:var(--mo-accent);}
+.mo-settings .mo-switch{position:relative;flex:none;width:28px;height:18px;min-height:18px;padding:0;border:0;border-radius:18px;background:rgba(127,127,127,.35);}
+.mo-settings .mo-switch:after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:#fff;transition:transform 120ms;}
+.mo-settings .mo-switch[aria-checked="true"]{background:var(--mo-accent);}
+.mo-settings .mo-switch[aria-checked="true"]:after{transform:translateX(10px);}
+.mo-settings details>summary{display:flex;align-items:center;gap:12px;list-style:none;cursor:pointer;font-size:12px;min-height:40px;}
+.mo-settings details>summary::-webkit-details-marker{display:none;}
+.mo-settings details>summary:after{content:"›";font-size:17px;opacity:.5;margin-left:auto;transition:transform 120ms;}
+.mo-settings details[open]>summary:after{transform:rotate(90deg);}
+.mo-settings .mo-summary-value{margin-left:auto;font-size:10px;font-weight:400;color:var(--dsw-alias-label-tertiary,#9aa0a8);}
+.mo-settings .mo-summary-value+*{margin-left:0;}
+.mo-settings .mo-disclosure{border-bottom:1px solid var(--mo-line);}
+.mo-settings .mo-disclosure>summary:after{margin-left:0;}
+.mo-settings .mo-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:5px 28px;padding:0 0 12px;}
+.mo-settings .mo-overview-bar{display:flex;align-items:center;gap:22px;flex-wrap:wrap;min-height:48px;border-bottom:1px solid var(--mo-line);padding:6px 0;}
+.mo-settings .mo-overview-bar>.mo-title{margin-right:auto;}
+.mo-settings .mo-switch-line{display:flex;align-items:center;gap:8px;}
+.mo-settings .mo-overview-bar .mo-form-row{gap:10px;}
+.mo-settings .mo-records{padding:12px 0 0;border-bottom:1px solid var(--mo-line);}
+.mo-settings .mo-record-summary{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.mo-settings .mo-stats{display:flex;gap:14px;flex-wrap:wrap;}
+.mo-settings .mo-stat{display:flex;align-items:baseline;gap:4px;}
+.mo-settings .mo-stat strong{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;}
+.mo-settings .mo-data-tools>summary{font-size:11px;color:var(--dsw-alias-label-secondary,#aaa);min-height:32px;}
+.mo-settings .mo-record-body,.mo-settings .mo-help{display:grid;gap:10px;padding:8px 0 12px;}
+.mo-settings .mo-record-tools{border-top:1px solid var(--mo-line);}
+.mo-settings .mo-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.mo-settings .mo-danger{color:var(--dsw-alias-label-error,#e5484d);}
+.mo-settings .mo-confirm{display:grid;gap:10px;padding:12px;border:1px solid var(--mo-line);border-radius:8px;}
+.mo-settings .mo-confirm .mo-control{display:grid;gap:6px;}
+.mo-settings .mo-help-item{display:grid;grid-template-columns:60px minmax(0,1fr);gap:12px;}
+.mo-settings .mo-help-item strong{font-size:11px;font-weight:500;}
+.mo-settings .mo-settings-note{margin-top:6px;}
+.mo-settings .mo-select{min-width:0;width:100%;}
+.mo-settings .mo-select-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-width:0;min-height:28px;text-align:left;background:var(--dsw-alias-bg-layer-2,#292a2e);}
+.mo-settings .mo-select-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mo-settings .mo-select-trigger>svg{flex:none;opacity:.6;transition:transform 120ms;}
+.mo-settings .mo-select-trigger[aria-expanded="true"]{border-color:var(--mo-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--mo-accent) 12%,transparent);}
+.mo-settings .mo-select-trigger[aria-expanded="true"]>svg{transform:rotate(180deg);}
+.mo-settings.mo-select-portal{position:fixed;display:block;container-type:normal;z-index:2147483100;font-size:12px;line-height:1.5;}
+.mo-settings .mo-select-menu{padding:4px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;border:1px solid var(--mo-line);border-radius:9px;background:var(--dsw-alias-bg-layer-3,#303136);box-shadow:0 8px 24px #0003;}
+.mo-settings .mo-select-menu [role="option"]{display:flex;align-items:center;gap:10px;width:100%;min-height:32px;padding:6px 9px;border:0;border-radius:5px;text-align:left;background:transparent;color:inherit;font:inherit;}
+.mo-settings .mo-select-menu [data-active="true"]{background:var(--mo-fill);}
+.mo-settings .mo-select-menu [aria-selected="true"]{color:var(--mo-accent);}
+.mo-settings .mo-select-option-label{flex:1;min-width:0;overflow-wrap:anywhere;}
+.mo-settings .mo-select-check{flex:none;}
+
+@container(max-width:640px){.mo-settings .mo-hero{grid-template-columns:1fr;gap:14px;}.mo-settings .mo-preview{margin:auto;}.mo-settings .mo-detail-grid{grid-template-columns:1fr;}.mo-settings .mo-common .mo-options{max-width:64%;}}
+@container(max-width:380px){.mo-settings .mo-hero{padding:10px;}.mo-settings .mo-form-row{gap:8px;}.mo-settings .mo-options button{padding:2px 5px;}.mo-settings .mo-overview-bar{gap:12px;}.mo-settings .mo-summary-value{max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+@media(prefers-reduced-motion:reduce){.mo-settings .mo-switch:after,.mo-settings details>summary:after,.mo-settings .mo-select-trigger>svg{transition:none;}}
+`;
     }
 
     function buildCss() {
@@ -887,6 +994,9 @@ window.__ModuleLoader__.load({
         '#' + PANEL_ID + ' .mo-sort-menu{position:absolute;right:10px;top:42px;z-index:5;display:grid;gap:2px;min-width:140px;padding:5px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.2));background:var(--dsw-alias-bg-layer-3,#303136);box-shadow:0 8px 24px #0004;}',
         '#' + PANEL_ID + ' .mo-sort-menu[hidden]{display:none;}',
         '#' + PANEL_ID + ' .mo-sort-menu .mo-btn{text-align:left;min-height:30px;padding:5px 10px;font-size:.9em;}',
+        '#' + PANEL_ID + '[data-density="compact"] .mo-row{min-height:30px;padding-top:4px;padding-bottom:4px;}',
+        '#' + PANEL_ID + '[data-density="compact"] .mo-series-heading{min-height:25px;padding-top:3px;padding-bottom:3px;}',
+        '#' + PANEL_ID + '[data-density="relaxed"] .mo-row{min-height:46px;padding-top:12px;padding-bottom:12px;}',
         '#' + PANEL_ID + ' .mo-sort-menu [aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,rgba(127,127,127,.18));color:var(--mo-accent);}',
       ].join('\n');
     }
@@ -1210,7 +1320,15 @@ window.__ModuleLoader__.load({
       let state = loadState();
       /** 旧显示名键仅在目录确认唯一对应关系时转换。 */
       function snapshotOf(menu) {
-        const snapshot = readSnapshot(menu);
+        // Settings management reads the same cached public directory; it never selects a model.
+        const snapshot = settingsAnchor ? { providers: catalogGroups().map(group => ({
+          identity: group.id, label: group.id === 'deepseek-account' ? 'DeepSeek 账号' : providerNames(group)[0] || group.id,
+          items: (group.models || []).map(model => ({
+            key: stableModelKey(group.id, model.id), modelId: model.id, name: model.name || model.id,
+            legacyKeys: providerNames(group).map(name => modelKey(name, model.name || model.id)),
+            selected: false, button: { disabled: false },
+          })),
+        })) } : readSnapshot(menu);
         const mapping = new Map();
         function add(from, to) {
           if (!mapping.has(from)) mapping.set(from, to);
@@ -1243,6 +1361,7 @@ window.__ModuleLoader__.load({
       }
       /** 当前作用域内的菜单（同时只会有一个 composer 模型菜单）。 */
       let menuEl = null;
+      let settingsAnchor = null;
       /** 当前面板展示的来源键；null 表示总览（置顶/最近/来源列表）。 */
       let openProvider = null;
       let openProviderIdentity = null;
@@ -1255,6 +1374,14 @@ window.__ModuleLoader__.load({
       let manageFilter = 'all';
       let searchAll = false;
       const viewMemory = new Map();
+      const seriesOverrides = new Map();
+      let hoverTimer = null;
+      let hoverTarget = null;
+      function cancelHover() { if (hoverTimer !== null) win.clearTimeout(hoverTimer); hoverTimer = null; hoverTarget = null; }
+      function seriesCollapsed(key) {
+        if (seriesOverrides.has(key)) return seriesOverrides.get(key);
+        return state.seriesState === 'remember' ? state.collapsedSeries.includes(key) : state.seriesState === 'collapsed';
+      }
       function rememberView() {
         if (panel.hidden) return;
         viewMemory.set(openProviderIdentity || openProvider || 'overview', { query: query, searchAll: searchAll, scrollTop: listEl.scrollTop });
@@ -1324,6 +1451,12 @@ window.__ModuleLoader__.load({
 
       /** 固定面板位置：优先贴菜单右侧，放不下就贴左侧。 */
       function placePanel() {
+        if (settingsAnchor) {
+          const box = panel.getBoundingClientRect();
+          panel.style.left = Math.max(8, (win.innerWidth - (box.width || 360)) / 2) + 'px';
+          panel.style.top = Math.max(8, (win.innerHeight - box.height) / 2) + 'px';
+          return;
+        }
         if (menuEl === null) return;
         placeNativeMenu();
         if (panel.hidden) return;
@@ -1366,7 +1499,7 @@ window.__ModuleLoader__.load({
 
       /** 当前可见（未被隐藏）的模型条目。 */
       function visibleEntries() {
-        if (menuEl === null) return [];
+        if (menuEl === null && !settingsAnchor) return [];
         const snapshot = snapshotOf(menuEl);
         const out = [];
         for (let i = 0; i < snapshot.providers.length; i++) {
@@ -1700,13 +1833,13 @@ window.__ModuleLoader__.load({
           let container = target;
           if (family && !(global && families.size === 1)) {
             const key = JSON.stringify([providerIdentity, family]);
-            const collapsed = normalizeQuery(query) === '' && state.collapsedSeries.includes(key);
+            const collapsed = normalizeQuery(query) === '' && seriesCollapsed(key);
             const group = el(doc, 'div', { class: 'mo-series', 'data-family': family });
             const heading = el(doc, 'button', { class: 'mo-series-heading', type: 'button', 'data-act': 'series', 'data-key': key, 'aria-expanded': collapsed ? 'false' : 'true', disabled: normalizeQuery(query) !== '', title: normalizeQuery(query) !== '' ? '搜索时自动展开；清空搜索后可折叠' : '展开或折叠系列', 'aria-label': family + ' 系列，' + models.length + ' 个模型' }, [icon(doc, 'chevron', 'mo-chevron'), el(doc, 'span', { text: family }), el(doc, 'span', { class: 'mo-group-count', text: String(models.length) })]);
             container = el(doc, 'div', { class: 'mo-series-models', hidden: collapsed });
             group.append(heading, container); target.appendChild(group);
           }
-          for (const entry of orderEntries(models, state.sortOrder, normalizeQuery(query), state.aliases)) container.appendChild(modelRow(entry, groupedProvider));
+          for (const entry of orderEntries(models, effectiveSort(state, providerIdentity), normalizeQuery(query), state.aliases)) container.appendChild(modelRow(entry, groupedProvider));
         }
       }
 
@@ -1734,11 +1867,14 @@ window.__ModuleLoader__.load({
        */
       function applySettings() {
         panel.style.setProperty('--mo-fs', state.fontSize + 'px');
+        panel.style.width = state.panelWidth + 'px';
+        panel.style.maxHeight = state.panelHeight + 'vh';
+        panel.setAttribute('data-density', state.density);
         if (!panel.hidden) renderPanel();
       }
 
       function renderPanel() {
-        if (menuEl === null) return;
+        if (menuEl === null && !settingsAnchor) return;
         const active = doc.activeElement;
         const editing = active && panel.contains(active) && active.getAttribute('data-act') === 'alias'
           ? { key: active.getAttribute('data-key'), value: active.value, start: active.selectionStart, end: active.selectionEnd } : null;
@@ -1761,7 +1897,8 @@ window.__ModuleLoader__.load({
 
       /** 面板渲染的实际实现。 */
       function renderPanelInner() {
-        if (menuEl === null) return;
+        if (menuEl === null && !settingsAnchor) return;
+        panel.querySelector('[data-act="overview"]').hidden = !!settingsAnchor;
         const snapshot = snapshotOf(menuEl);
         if (openProvider !== null) {
           const current = snapshot.providers.find(function (provider) { return provider.identity === openProviderIdentity || provider.label === openProvider; });
@@ -1771,16 +1908,17 @@ window.__ModuleLoader__.load({
         const normalized = normalizeQuery(query);
         const scopeItems = snapshot.providers.filter(function (provider) { return openProvider === null || searchAll || provider.label === openProvider; }).flatMap(function (provider) { return provider.items; });
         const hiddenCount = scopeItems.filter(function (item) { return state.hidden.indexOf(item.key) >= 0; }).length;
-        const viewKey = JSON.stringify([managing, openProviderIdentity, openProvider, searchAll, normalized, manageFilter, state.sortOrder, state.groupSeries]);
+        const viewKey = JSON.stringify([managing, openProviderIdentity, openProvider, searchAll, normalized, manageFilter, state.sortOrder, state.providerSorts, state.sortMode, state.groupSeries]);
         const scrollTop = viewKey === previousView ? listEl.scrollTop : 0;
         previousView = viewKey;
         searchInput.value = query;
         titleEl.title = openProvider === null ? '模型总览' : openProvider;
         searchInput.placeholder = '搜索模型、别名或 ID…';
-        const sortLabel = { default: '默认顺序', name: '名称 A → Z', 'price-asc': '倍率 低 → 高', 'price-desc': '倍率 高 → 低' }[state.sortOrder];
+        const currentSort = effectiveSort(state, openProviderIdentity || openProvider);
+        const sortLabel = { default: '默认顺序', name: '名称 A → Z', 'price-asc': '倍率 低 → 高', 'price-desc': '倍率 高 → 低' }[currentSort];
         panel.querySelector('.mo-sort-trigger').title = '排序：' + sortLabel + '（组内排序；倍率不等同实际费用）';
-        panel.querySelector('.mo-sort-trigger').setAttribute('data-on', state.sortOrder === 'default' ? '0' : '1');
-        panel.querySelectorAll('[data-act="sort-order"]').forEach(button => button.setAttribute('aria-pressed', button.getAttribute('data-order') === state.sortOrder ? 'true' : 'false'));
+        panel.querySelector('.mo-sort-trigger').setAttribute('data-on', currentSort === 'default' ? '0' : '1');
+        panel.querySelectorAll('[data-act="sort-order"]').forEach(button => button.setAttribute('aria-pressed', button.getAttribute('data-order') === currentSort ? 'true' : 'false'));
         panel.querySelectorAll('[data-act="search-scope"]').forEach(function (button) {
           const all = button.getAttribute('data-scope') === 'all';
           button.disabled = !all && openProvider === null;
@@ -1829,6 +1967,7 @@ window.__ModuleLoader__.load({
           });
           const providers = appendProviderGroups(entries, snapshot, global);
           if (!entries.length) listEl.appendChild(el(doc, 'div', { class: 'mo-empty', text: normalized || managing ? '没有匹配的模型' : '这个来源没有可用模型' }));
+          if (!entries.length && normalized && !global) listEl.appendChild(el(doc, 'button', { class: 'mo-btn', type: 'button', 'data-act': 'search-global', text: '搜索全部厂商' }));
           panel.querySelector('.mo-summary').textContent = global ? providers + ' 个厂商 · ' + entries.length + ' 个模型' : entries.length + (normalized || managing ? ' 结果' : ' 模型');
         } else {
           // 总览：置顶 → 最近 → 来源
@@ -1839,16 +1978,16 @@ window.__ModuleLoader__.load({
           const favorites = state.favorites.filter(function (key) {
             return byKey[key] !== undefined;
           });
-          if (favorites.length > 0) {
+          if (state.showFavorites && favorites.length > 0) {
             listEl.appendChild(el(doc, 'div', { class: 'mo-group-label', text: '置顶' }));
             for (let i = 0; i < favorites.length; i++) listEl.appendChild(modelRow(byKey[favorites[i]]));
           }
           const recents = state.recents.filter(function (key) {
-            return byKey[key] !== undefined && favorites.indexOf(key) < 0;
+            return byKey[key] !== undefined && (!state.showFavorites || favorites.indexOf(key) < 0);
           });
-          if (recents.length > 0) {
+          if (state.showRecents && recents.length > 0) {
             listEl.appendChild(el(doc, 'div', { class: 'mo-group-label', text: '最近' }));
-            for (let i = 0; i < recents.length; i++) listEl.appendChild(modelRow(byKey[recents[i]]));
+            for (let i = 0; i < Math.min(recents.length, state.recentCount); i++) listEl.appendChild(modelRow(byKey[recents[i]]));
           }
           listEl.appendChild(el(doc, 'div', { class: 'mo-group-label', text: '来源' }));
           for (let i = 0; i < snapshot.providers.length; i++) {
@@ -1881,20 +2020,32 @@ window.__ModuleLoader__.load({
         const provider = menuEl === null || nextProvider === null ? null : snapshotOf(menuEl).providers.find(item => item.label === nextProvider);
         openProviderIdentity = provider ? provider.identity : null;
         const previous = changed ? viewMemory.get(openProviderIdentity || openProvider || 'overview') : null;
-        if (changed) { query = previous ? previous.query : ''; searchAll = previous ? previous.searchAll : false; managing = false; editingAlias = null; manageFilter = 'all'; }
+        if (changed) {
+          cancelHover(); seriesOverrides.clear();
+          query = previous && state.reopen === 'continue' ? previous.query : '';
+          if (state.reopen === 'clear') listEl.scrollTop = 0;
+          searchAll = state.searchScope === 'all' || state.searchScope === 'last' && !!(previous && previous.searchAll);
+          managing = false; editingAlias = null; manageFilter = 'all';
+        }
         panel.hidden = false;
         renderPanel();
-        if (previous) listEl.scrollTop = previous.scrollTop;
+        if (previous && state.reopen === 'continue') listEl.scrollTop = previous.scrollTop;
         placePanel();
       }
 
       function closePanel() {
+        cancelHover(); seriesOverrides.clear();
+        const returnFocus = settingsAnchor;
+        settingsAnchor = null;
+        panel.removeAttribute('role');
+        panel.setAttribute('aria-label', '模型整理器');
         rememberView();
         panel.hidden = true;
         panel.querySelector('.mo-sort-menu').hidden = true; panel.querySelector('.mo-sort-trigger').setAttribute('aria-expanded', 'false');
         openProvider = null; openProviderIdentity = null;
         managing = false; query = ''; searchAll = false;
         editingAlias = null; manageFilter = 'all';
+        if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
       }
 
       /** 让菜单进入「已整理」状态（打作用域、写属性、应用折叠）。 */
@@ -1922,6 +2073,11 @@ window.__ModuleLoader__.load({
        * 就地换 children（root ⇄ model ⇄ effort），只认元素身份会漏掉视图切换。
        */
       function scan() {
+        if (settingsAnchor) {
+          if (!settingsAnchor.isConnected) closePanel();
+          else renderPanel();
+          return;
+        }
         const candidates = doc.querySelectorAll('div[role="menu"]');
         let found = null;
         for (let i = 0; i < candidates.length; i++) {
@@ -1931,6 +2087,7 @@ window.__ModuleLoader__.load({
           }
         }
         if (found === null) {
+          cancelHover();
           if (menuEl !== null) {
             restoreMenu();
             menuEl = null;
@@ -2133,10 +2290,21 @@ window.__ModuleLoader__.load({
       };
 
       const onMouseOver = function (event) {
-        if (state.mode !== 'hover') return;
+        if (state.openOn !== 'hover') { cancelHover(); return; }
         const ctx = headingContext(event.target);
-        if (ctx === null) return;
-        if (openProvider !== ctx.label || panel.hidden) openPanel(ctx.label);
+        if (ctx === null) { cancelHover(); return; }
+        if (!panel.hidden && openProvider === ctx.label) return;
+        if (hoverTarget === ctx.section) return;
+        cancelHover();
+        if (!state.hoverDelay) { openPanel(ctx.label); return; }
+        hoverTarget = ctx.section;
+        hoverTimer = win.setTimeout(function () {
+          hoverTimer = null; hoverTarget = null;
+          if (ctx.section.isConnected && menuEl && menuEl.contains(ctx.section)) openPanel(ctx.label);
+        }, state.hoverDelay);
+      };
+      const onMouseOut = function (event) {
+        if (hoverTarget && (!event.relatedTarget || !event.relatedTarget.nodeType || !hoverTarget.contains(event.relatedTarget))) cancelHover();
       };
 
       // 只有一种交互方式：悬浮与点击都立即打开，不再等待双击判定。
@@ -2158,6 +2326,7 @@ window.__ModuleLoader__.load({
       let keyboardNav = false;
 
       const onKeyDown = function (event) {
+        cancelHover();
         if (event.target.hasAttribute && event.target.hasAttribute('data-mo-provider-search')) {
           if (event.key === 'Escape' && providerQuery !== '') {
             event.preventDefault(); event.stopPropagation(); providerQuery = ''; applyProviderSearch(); return;
@@ -2273,7 +2442,14 @@ window.__ModuleLoader__.load({
         const sortMenu = panel.querySelector('.mo-sort-menu');
         if (act === 'sort-menu') { sortMenu.hidden = !sortMenu.hidden; actNode.setAttribute('aria-expanded', sortMenu.hidden ? 'false' : 'true'); placePanel(); return; }
         sortMenu.hidden = true; panel.querySelector('.mo-sort-trigger').setAttribute('aria-expanded', 'false');
-        if (act === 'sort-order') { state.sortOrder = actNode.getAttribute('data-order'); saveState(); renderPanel(); panel.querySelector('.mo-sort-trigger').focus(); return; }
+        if (act === 'sort-order') {
+          const order = actNode.getAttribute('data-order');
+          const provider = openProviderIdentity || openProvider;
+          if (state.sortMode === 'provider' && provider) state.providerSorts = Object.assign({}, state.providerSorts, { [provider]: order });
+          else state.sortOrder = order;
+          saveState(); renderPanel(); panel.querySelector('.mo-sort-trigger').focus(); return;
+        }
+        if (act === 'search-global') { searchAll = true; renderPanel(); searchInput.focus(); return; }
         if (act === 'close') {
           closePanel();
           return;
@@ -2284,7 +2460,9 @@ window.__ModuleLoader__.load({
           const key = actNode.getAttribute('data-key');
           // Search always reveals all matches; don't silently hide search hits.
           if (normalizeQuery(query) !== '') return;
-          state.collapsedSeries = toggleInList(state.collapsedSeries, key, 256); saveState(); renderPanel();
+          if (state.seriesState === 'remember') { state.collapsedSeries = toggleInList(state.collapsedSeries, key, 256); saveState(); }
+          else seriesOverrides.set(key, !seriesCollapsed(key));
+          renderPanel();
           for (const button of panel.querySelectorAll('[data-act="series"]')) if (button.getAttribute('data-key') === key) { button.focus({ preventScroll: true }); break; }
           return;
         }
@@ -2310,6 +2488,7 @@ window.__ModuleLoader__.load({
           return;
         }
         if (act === 'manage-off') {
+          if (settingsAnchor) { closePanel(); return; }
           managing = false;
           editingAlias = null;
           renderPanel();
@@ -2430,17 +2609,35 @@ window.__ModuleLoader__.load({
         const next = loadState();
         // mode 是「当前会话里点的」，设置页改的是「默认模式」；
         // 两者都直接落到 state.mode —— 设置页保存即生效。
-        state = next;
+        if (state.seriesState !== next.seriesState) seriesOverrides.clear();
+        cancelHover(); state = next;
         applyFolding();
         applySettings();
       });
       panel.addEventListener('click', onPanelClick);
       panel.addEventListener('input', onPanelInput);
       doc.body.appendChild(panel);
+      const managerBridge = {
+        open(anchor) {
+          if (!catalogGroups().some(group => (group.models || []).length)) return false;
+          closePanel();
+          settingsAnchor = anchor;
+          openProvider = null; openProviderIdentity = null;
+          managing = true; query = ''; searchAll = true; manageFilter = 'all'; editingAlias = null;
+          panel.setAttribute('role', 'dialog');
+          panel.setAttribute('aria-label', '整理模型');
+          panel.hidden = false;
+          renderPanel(); searchInput.focus();
+          return true;
+        },
+        close(anchor) { if (settingsAnchor === anchor) closePanel(); },
+      };
+      settingsManager = managerBridge;
       doc.addEventListener('mousedown', onMouseDown, true);
       doc.addEventListener('focusout', onFocusOut, true);
       doc.addEventListener('click', onTitleClick, true);
       doc.addEventListener('mouseover', onMouseOver, false);
+      doc.addEventListener('mouseout', onMouseOut, false);
       doc.addEventListener('keydown', onKeyDown, true);
       doc.addEventListener('input', onKernelSearchInput, true);
       doc.addEventListener('change', onKernelSearchInput, true);
@@ -2534,6 +2731,8 @@ window.__ModuleLoader__.load({
 
       // ── dispose：摘净自己加的每一样东西 ──
       return function dispose() {
+        cancelHover();
+        if (settingsManager === managerBridge) settingsManager = null;
         unsubscribeSettings();
         if (typeof unsubscribeCatalog === 'function') unsubscribeCatalog();
         if (timer !== null) win.clearTimeout(timer);
@@ -2542,6 +2741,7 @@ window.__ModuleLoader__.load({
         doc.removeEventListener('focusout', onFocusOut, true);
         doc.removeEventListener('click', onTitleClick, true);
         doc.removeEventListener('mouseover', onMouseOver, false);
+        doc.removeEventListener('mouseout', onMouseOut, false);
         doc.removeEventListener('keydown', onKeyDown, true);
         doc.removeEventListener('input', onKernelSearchInput, true);
         doc.removeEventListener('change', onKernelSearchInput, true);
@@ -2574,13 +2774,108 @@ window.__ModuleLoader__.load({
 
     /** 中文词典：宿主词典缺失时作为兜底。 */
     const ZH = {
+      "settings.live": "即时预览",
+      "settings.dataTools": "管理与备份",
+      "settings.width.300": "窄",
+      "settings.width.360": "标准",
+      "settings.width.440": "宽",
+      "settings.short.openOn.hover": "悬停",
+      "settings.short.openOn.click": "点击",
+      "settings.short.searchScope.local": "当前厂商",
+      "settings.short.searchScope.all": "全部厂商",
+      "settings.short.searchScope.last": "记住上次",
+      "settings.reopenHint": "关闭后再次打开时，恢复上次的关键词和滚动位置。",
+      "settings.advancedDisplay": "尺寸选项",
+      "settings.browsing": "浏览与搜索",
+      "settings.advancedBrowse": "更多浏览选项",
+      "settings.overview": "总览内容",
+      "settings.showFavorites": "显示置顶",
+      "settings.showRecents": "显示最近",
+      "settings.overviewHint": "最多保留 24 条最近记录；改变显示数量或关闭展示不会删除记录。",
+      "settings.perProviderHint": "各厂商可单独排序；设置页及全局排序作为未单独设置厂商的默认值。",
+      "settings.seriesInitialHint": "初始状态仅在重新打开浮框时应用，打开期间仍可手动折叠；搜索会临时展开匹配。",
+      "settings.backup": "备份与迁移",
+      "settings.export": "导出偏好",
+      "settings.import": "导入偏好",
+      "settings.backupHint": "备份包含显示设置、置顶、最近、别名、隐藏、折叠记录及厂商排序，不包含账号密钥。",
+      "settings.importMode": "导入方式",
+      "settings.merge": "合并记录（保留本机显示设置）",
+      "settings.replace": "替换全部偏好与记录",
+      "settings.importPreview": "待导入备份",
+      "settings.importPreferences": "备份中的显示与浏览设置",
+      "settings.importSummary": "置顶 {pins} · 最近 {recents} · 别名 {aliases} · 隐藏 {hidden} · 折叠 {collapsed} · 厂商排序 {sorts}",
+      "settings.importApply": "确认导入",
+      "settings.imported": "偏好已导入；离开本页前且没有后续修改时可撤销。",
+      "settings.importUndo": "撤销导入",
+      "settings.importUndone": "已恢复导入前的偏好。",
+      "settings.importError": "无法读取备份。请选择本插件导出的 JSON 文件（不超过 1 MB）。",
+      "settings.exported": "已生成偏好备份，请在下载位置查看。",
+      "settings.exportError": "导出失败，请检查浏览器下载权限后重试。",
+      "settings.mergeHint": "合并保留本机显示设置、同一模型的本机别名和显隐选择；置顶最多 12 个，最近最多 24 条。替换会应用备份中的全部设置和记录。",
+      "settings.groupSetting": "按模型系列分组",
+      "settings.previewWidth": "预览按所选宽度和密度显示，空间不足时自动缩小。",
+      "settings.density": "列表密度",
+      "settings.option.density.compact": "紧凑",
+      "settings.option.density.standard": "标准",
+      "settings.option.density.relaxed": "宽松",
+      "settings.panelWidth": "浮框宽度",
+      "settings.option.panelWidth.300": "窄 · 300px",
+      "settings.option.panelWidth.360": "标准 · 360px",
+      "settings.option.panelWidth.440": "宽 · 440px",
+      "settings.panelHeight": "最大高度",
+      "settings.option.panelHeight.60": "屏幕 60%",
+      "settings.option.panelHeight.70": "屏幕 70%",
+      "settings.option.panelHeight.85": "屏幕 85%",
+      "settings.openOn": "厂商展开方式",
+      "settings.option.openOn.hover": "悬停展开",
+      "settings.option.openOn.click": "点击展开",
+      "settings.hoverDelay": "悬停延迟",
+      "settings.option.hoverDelay.0": "立即",
+      "settings.option.hoverDelay.150": "150 毫秒",
+      "settings.option.hoverDelay.300": "300 毫秒",
+      "settings.searchScope": "默认搜索范围",
+      "settings.option.searchScope.local": "当前厂商",
+      "settings.option.searchScope.all": "全部厂商",
+      "settings.option.searchScope.last": "记住上次",
+      "settings.reopen": "记住搜索与位置",
+      "settings.option.reopen.continue": "继续上次浏览",
+      "settings.option.reopen.clear": "清空搜索与滚动位置",
+      "settings.seriesState": "系列初始状态",
+      "settings.option.seriesState.expanded": "全部展开",
+      "settings.option.seriesState.collapsed": "全部折叠",
+      "settings.option.seriesState.remember": "记住上次",
+      "settings.sortMode": "各厂商独立排序",
+      "settings.option.sortMode.shared": "所有厂商共用",
+      "settings.option.sortMode.provider": "各厂商分别记忆",
+      "settings.recentCount": "最近显示数量",
+      "settings.option.recentCount.4": "4 条",
+      "settings.option.recentCount.8": "8 条",
+      "settings.option.recentCount.12": "12 条",
+      "settings.preferences": "外观与常用",
+      "settings.defaults": "恢复默认",
+      "settings.defaultsDone": "显示与浏览设置已恢复默认，模型记录保持不变。",
+      "settings.previewHint": "示例模型 · 随设置即时变化",
+      "settings.sampleProvider": "示例厂商",
+      "settings.sampleAlias": "常用 Pro",
+      "settings.aliasMark": "自定义名称",
+      "settings.small": "小",
+      "settings.medium": "标准",
+      "settings.large": "大",
+      "settings.recordsManage": "管理记录",
+      "settings.organize": "整理模型",
+      "settings.directoryUnavailable": "模型目录尚未就绪，请先打开一次聊天中的模型菜单，然后重试。",
+      "settings.helpBrowse": "浏览",
+      "settings.helpSearch": "搜索",
+      "settings.helpOrganize": "整理",
+      "settings.helpKeyboard": "快捷键",
+      "settings.recordsHint": "整理全部厂商的模型；修改立即生效。",
       "settings.note": "修改立即生效，偏好仅保存在当前浏览器。",
-      "settings.fontSize": "面板字号",
+      "settings.fontSize": "浮框字号",
       "settings.fontSizeHint": "只调整模型浮框，宿主界面保持原字号。",
       "settings.browse": "浏览与排序",
       "settings.series": "按模型系列分组",
       "settings.seriesHint": "系列可折叠；搜索时自动展开，别名不改变归属。",
-      "settings.sort": "默认排序",
+      "settings.sort": "模型排序",
       "settings.sortHint": "排序作用在组内；未知倍率放最后，倍率不等同实际费用。",
       "settings.default": "默认顺序",
       "settings.name": "名称 A → Z",
@@ -2588,7 +2883,7 @@ window.__ModuleLoader__.load({
       "settings.desc": "倍率 高 → 低",
       "settings.on": "开启",
       "settings.off": "关闭",
-      "settings.preview": "字号预览",
+      "settings.preview": "效果预览",
       "settings.previewProvider": "示例厂商 · 已置顶",
       "settings.data": "本地记录",
       "settings.dataHint": "置顶、最近使用、别名和隐藏记录会随模型菜单实时更新。",
@@ -2596,8 +2891,8 @@ window.__ModuleLoader__.load({
       "settings.recents": "最近",
       "settings.aliases": "别名",
       "settings.hidden": "隐藏",
-      "settings.reset": "清空偏好数据",
-      "settings.resetHint": "只清空模型记录，保留字号设置。",
+      "settings.reset": "清空模型记录",
+      "settings.resetHint": "清空置顶、最近、别名、隐藏与系列折叠记录；保留全部显示、浏览和排序设置。",
       "settings.resetButton": "清空",
       "settings.resetConfirm": "确定清空所有模型记录？在离开此页面前可以撤销。",
       "settings.confirmButton": "确认清空",
@@ -2612,13 +2907,108 @@ window.__ModuleLoader__.load({
       "settings.helpKeys": "搜索时按 Esc 先清空查询，再按一次关闭；方向键选择，回车确认。"
     };
     const EN = {
+      "settings.live": "Live",
+      "settings.dataTools": "Manage and back up",
+      "settings.width.300": "Narrow",
+      "settings.width.360": "Standard",
+      "settings.width.440": "Wide",
+      "settings.short.openOn.hover": "Hover",
+      "settings.short.openOn.click": "Click",
+      "settings.short.searchScope.local": "Current",
+      "settings.short.searchScope.all": "All",
+      "settings.short.searchScope.last": "Last used",
+      "settings.reopenHint": "Restore the last query and scroll position when reopening.",
+      "settings.advancedDisplay": "Sizing options",
+      "settings.browsing": "Browsing and search",
+      "settings.advancedBrowse": "More browsing options",
+      "settings.overview": "Overview content",
+      "settings.showFavorites": "Show pinned models",
+      "settings.showRecents": "Show recent models",
+      "settings.overviewHint": "Keeps up to 24 recent records. Changing the visible count or hiding a section does not delete records.",
+      "settings.perProviderHint": "Providers can keep separate orders. Settings and global sorting supply the fallback order.",
+      "settings.seriesInitialHint": "Applies when reopening. Families can still be toggled while open; searching reveals matches temporarily.",
+      "settings.backup": "Backup and transfer",
+      "settings.export": "Export preferences",
+      "settings.import": "Import preferences",
+      "settings.backupHint": "Includes display settings, pins, recents, aliases, hidden models, collapsed families and provider orders. No account credentials.",
+      "settings.importMode": "Import mode",
+      "settings.merge": "Merge records (keep local display settings)",
+      "settings.replace": "Replace all preferences and records",
+      "settings.importPreview": "Backup to import",
+      "settings.importPreferences": "Display and browsing settings in backup",
+      "settings.importSummary": "Pins {pins} · Recents {recents} · Aliases {aliases} · Hidden {hidden} · Collapsed {collapsed} · Provider orders {sorts}",
+      "settings.importApply": "Confirm import",
+      "settings.imported": "Preferences imported. Undo is available before leaving, unless you make further changes.",
+      "settings.importUndo": "Undo import",
+      "settings.importUndone": "Preferences restored to their state before import.",
+      "settings.importError": "Cannot read backup. Choose a JSON file exported by this plugin (up to 1 MB).",
+      "settings.exported": "Backup generated. Check your downloads.",
+      "settings.exportError": "Export failed. Check browser download permissions and try again.",
+      "settings.mergeHint": "Merge keeps local display settings, aliases and visibility on conflicts. Up to 12 pins and 24 recents. Replace applies all settings and records from the backup.",
+      "settings.groupSetting": "Group models by family",
+      "settings.previewWidth": "Preview follows width and density, shrinking when space is limited.",
+      "settings.density": "List density",
+      "settings.option.density.compact": "Compact",
+      "settings.option.density.standard": "Standard",
+      "settings.option.density.relaxed": "Relaxed",
+      "settings.panelWidth": "Flyout width",
+      "settings.option.panelWidth.300": "Narrow · 300px",
+      "settings.option.panelWidth.360": "Standard · 360px",
+      "settings.option.panelWidth.440": "Wide · 440px",
+      "settings.panelHeight": "Maximum height",
+      "settings.option.panelHeight.60": "60% of screen",
+      "settings.option.panelHeight.70": "70% of screen",
+      "settings.option.panelHeight.85": "85% of screen",
+      "settings.openOn": "Open provider",
+      "settings.option.openOn.hover": "On hover",
+      "settings.option.openOn.click": "On click",
+      "settings.hoverDelay": "Hover delay",
+      "settings.option.hoverDelay.0": "Immediately",
+      "settings.option.hoverDelay.150": "150 ms",
+      "settings.option.hoverDelay.300": "300 ms",
+      "settings.searchScope": "Default search scope",
+      "settings.option.searchScope.local": "Current provider",
+      "settings.option.searchScope.all": "All providers",
+      "settings.option.searchScope.last": "Remember last",
+      "settings.reopen": "Remember browsing",
+      "settings.option.reopen.continue": "Continue browsing",
+      "settings.option.reopen.clear": "Clear search and scroll",
+      "settings.seriesState": "Initial family state",
+      "settings.option.seriesState.expanded": "Expand all",
+      "settings.option.seriesState.collapsed": "Collapse all",
+      "settings.option.seriesState.remember": "Remember last",
+      "settings.sortMode": "Separate provider orders",
+      "settings.option.sortMode.shared": "Shared across providers",
+      "settings.option.sortMode.provider": "Remember per provider",
+      "settings.recentCount": "Visible recent models",
+      "settings.option.recentCount.4": "4 models",
+      "settings.option.recentCount.8": "8 models",
+      "settings.option.recentCount.12": "12 models",
+      "settings.preferences": "Appearance and essentials",
+      "settings.defaults": "Restore defaults",
+      "settings.defaultsDone": "Display and browsing defaults restored; model records kept.",
+      "settings.previewHint": "Sample models · Updates as you adjust",
+      "settings.sampleProvider": "Sample provider",
+      "settings.sampleAlias": "Daily Pro",
+      "settings.aliasMark": "Custom name",
+      "settings.small": "Small",
+      "settings.medium": "Standard",
+      "settings.large": "Large",
+      "settings.recordsManage": "Manage records",
+      "settings.organize": "Organize models",
+      "settings.directoryUnavailable": "The model directory is not ready. Open the model picker in a chat, then try again.",
+      "settings.helpBrowse": "Browse",
+      "settings.helpSearch": "Search",
+      "settings.helpOrganize": "Organize",
+      "settings.helpKeyboard": "Keyboard",
+      "settings.recordsHint": "Organize models from all providers. Changes apply immediately.",
       "settings.note": "Changes apply immediately. Preferences stay in this browser.",
-      "settings.fontSize": "Panel font size",
+      "settings.fontSize": "Flyout font size",
       "settings.fontSizeHint": "Adjusts model flyouts only; the host keeps its font size.",
       "settings.browse": "Browsing and sorting",
       "settings.series": "Group models by family",
       "settings.seriesHint": "Collapse families; searching reveals matches. Aliases keep their family.",
-      "settings.sort": "Default sorting",
+      "settings.sort": "Model sorting",
       "settings.sortHint": "Sort within groups. Unknown multipliers come last; multipliers are not actual fees.",
       "settings.default": "Default order",
       "settings.name": "Name A → Z",
@@ -2626,7 +3016,7 @@ window.__ModuleLoader__.load({
       "settings.desc": "Multiplier high → low",
       "settings.on": "On",
       "settings.off": "Off",
-      "settings.preview": "Font preview",
+      "settings.preview": "Live preview",
       "settings.previewProvider": "Sample provider · Pinned",
       "settings.data": "Local records",
       "settings.dataHint": "Pins, recents, aliases and hidden records update with the model menu.",
@@ -2634,8 +3024,8 @@ window.__ModuleLoader__.load({
       "settings.recents": "Recents",
       "settings.aliases": "Aliases",
       "settings.hidden": "Hidden",
-      "settings.reset": "Clear preference data",
-      "settings.resetHint": "Clears model records only; keeps the font size.",
+      "settings.reset": "Clear model records",
+      "settings.resetHint": "Clears pins, recents, aliases, hidden models and collapsed families; keeps all display, browsing and sorting settings.",
       "settings.resetButton": "Clear",
       "settings.resetConfirm": "Clear all model records? You can undo before leaving this page.",
       "settings.confirmButton": "Confirm clear",
@@ -2689,6 +3079,111 @@ window.__ModuleLoader__.load({
       writeState(Object.assign({}, readState(), patch));
     }
 
+    let settingsSelectSequence = 0;
+    function SettingsSelect({ label, value, options, onChange, disabled = false }) {
+      const [open, setOpen] = useState(false);
+      const [active, setActive] = useState(0);
+      const [position, setPosition] = useState(null);
+      const triggerRef = useRef(null), menuRef = useRef(null), idRef = useRef(null);
+      const typeahead = useRef({ text: '', time: 0 });
+      if (idRef.current === null) idRef.current = 'mo-settings-select-' + (++settingsSelectSequence);
+      const id = idRef.current;
+      const selected = Math.max(0, options.findIndex(option => option.value === value));
+      function close(refocus) {
+        setOpen(false); typeahead.current = { text: '', time: 0 };
+        if (refocus && triggerRef.current && !disabled) triggerRef.current.focus({ preventScroll: true });
+      }
+      function show() {
+        if (disabled || !options.length) return;
+        document.dispatchEvent(new window.CustomEvent('dsh-model-organizer-select-open', { detail: id }));
+        setPosition(null); setActive(selected); setOpen(true);
+      }
+      function choose(index) {
+        if (!disabled && options[index]) {
+          if (options[index].value !== value) onChange(options[index].value);
+          close(true);
+        }
+      }
+      function onKeyDown(event) {
+        if (disabled || event.isComposing) return;
+        const key = event.key;
+        if (key === 'Tab') { close(false); return; }
+        if (key === 'Escape') {
+          if (open) { event.preventDefault(); event.stopPropagation(); close(true); }
+          return;
+        }
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(key)) {
+          event.preventDefault(); event.stopPropagation();
+          if (!open) { show(); if (key === 'Home') setActive(0); if (key === 'End') setActive(options.length - 1); return; }
+          if (key === 'Enter' || key === ' ') { choose(active); return; }
+          setActive(index => key === 'Home' ? 0 : key === 'End' ? options.length - 1 : (index + (key === 'ArrowDown' ? 1 : -1) + options.length) % options.length);
+          return;
+        }
+        if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault(); event.stopPropagation();
+          const now = Date.now(), letter = key.toLocaleLowerCase();
+          const text = now - typeahead.current.time > 600 ? letter : typeahead.current.text + letter;
+          typeahead.current = { text, time: now };
+          if (!open) show();
+          const repeated = Array.from(text).every(char => char === letter), needle = repeated ? letter : text;
+          const from = open ? active : selected;
+          for (let offset = 1; offset <= options.length; offset++) {
+            const index = (from + offset) % options.length;
+            if (options[index].label.toLocaleLowerCase().startsWith(needle)) { setActive(index); break; }
+          }
+        }
+      }
+      useEffect(function () { if (disabled) setOpen(false); }, [disabled]);
+      useLayoutEffect(function () {
+        if (!open) return;
+        const trigger = triggerRef.current, menu = menuRef.current;
+        function place(event) {
+          if (event && event.target && event.target.nodeType && menu && menu.contains(event.target)) return;
+          if (!trigger || !trigger.isConnected || trigger.closest('details:not([open])')) { close(false); return; }
+          const rect = trigger.getBoundingClientRect(), width = Math.min(Math.max(rect.width, 180), Math.max(1, window.innerWidth - 16));
+          if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) { close(false); return; }
+          const below = Math.max(0, window.innerHeight - rect.bottom - 14), above = Math.max(0, rect.top - 14);
+          const height = Math.min(menu && menu.scrollHeight || options.length * 34 + 10, 280);
+          const upward = below < height && above > below;
+          const maxHeight = Math.max(1, Math.min(280, upward ? above : below));
+          setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)), top: upward ? Math.max(8, rect.top - 6 - Math.min(height, maxHeight)) : rect.bottom + 6, width, maxHeight, upward });
+        }
+        function outside(event) {
+          if (!trigger.contains(event.target) && !(menu && menu.contains(event.target))) close(false);
+        }
+        function another(event) { if (event.detail !== id) close(false); }
+        function disclosure(event) { if (event.target.contains && event.target.contains(trigger) && !event.target.open) close(false); }
+        place();
+        document.addEventListener('pointerdown', outside, true);
+        document.addEventListener('focusin', outside, true);
+        document.addEventListener('dsh-model-organizer-select-open', another);
+        document.addEventListener('toggle', disclosure, true);
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        return function () {
+          document.removeEventListener('pointerdown', outside, true);
+          document.removeEventListener('focusin', outside, true);
+          document.removeEventListener('dsh-model-organizer-select-open', another);
+          document.removeEventListener('toggle', disclosure, true);
+          window.removeEventListener('resize', place);
+          window.removeEventListener('scroll', place, true);
+        };
+      }, [open, disabled, options.length, position && position.width]);
+      useLayoutEffect(function () {
+        const item = menuRef.current && menuRef.current.querySelector('[data-index="' + active + '"]');
+        if (open && item && typeof item.scrollIntoView === 'function') item.scrollIntoView({ block: 'nearest' });
+      }, [open, active]);
+      const arrow = h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', 'aria-hidden': true }, h('path', { d: 'm5 7.5 5 5 5-5', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }));
+      return h('div', { className: 'mo-select' },
+        h('button', { ref: triggerRef, type: 'button', className: 'mo-select-trigger', role: 'combobox', 'aria-label': label, 'aria-haspopup': 'listbox', 'aria-expanded': open, 'aria-controls': open ? id : undefined, 'aria-activedescendant': open ? id + '-' + active : undefined, 'data-value': String(value), disabled,
+          onClick: () => open ? close(false) : show(), onKeyDown }, h('span', { className: 'mo-select-value' }, options[selected] ? options[selected].label : ''), arrow),
+        open ? createPortal(h('div', { className: 'mo-settings mo-select-portal', 'data-plugin': 'dsh-model-organizer', 'data-placement': position && position.upward ? 'above' : 'below', style: { left: position ? position.left + 'px' : 0, top: position ? position.top + 'px' : 0, width: position ? position.width + 'px' : '180px', visibility: position ? 'visible' : 'hidden' }, onKeyDown },
+          h('div', { ref: menuRef, id, role: 'listbox', 'aria-label': label, className: 'mo-select-menu', style: { maxHeight: position ? position.maxHeight + 'px' : '280px' } },
+            ...options.map((option, index) => h('button', { key: String(option.value), id: id + '-' + index, type: 'button', role: 'option', tabIndex: -1, 'aria-selected': option.value === value, 'data-value': String(option.value), 'data-index': index, 'data-active': index === active,
+              onMouseDown: event => event.preventDefault(), onMouseMove: () => setActive(index), onClick: () => choose(index) }, h('span', { className: 'mo-select-option-label' }, option.label),
+              h('svg', { className: 'mo-select-check', width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', 'aria-hidden': true }, option.value === value ? h('path', { d: 'm4 10 4 4 8-8', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }) : null))))) , document.body) : null);
+    }
+
     /** 设置页：即时预览、记录摘要和可撤销的页内清空。 */
     function ModelOrganizerSettings(props) {
       const t = translator(props);
@@ -2696,6 +3191,15 @@ window.__ModuleLoader__.load({
       const [confirming, setConfirming] = useState(false);
       const [backup, setBackup] = useState(null);
       const [notice, setNotice] = useState('');
+      const [importDraft, setImportDraft] = useState(null);
+      const [importMode, setImportMode] = useState('merge');
+      const [importBackup, setImportBackup] = useState(null);
+      const fileRef = useRef(null);
+      const importRequest = useRef(0);
+      useEffect(() => () => { importRequest.current++; }, []);
+      useEffect(function () {
+        if (importBackup && serializeState(settings) !== importBackup.after) setImportBackup(null);
+      }, [settings]);
       // 设置槽可能独立于菜单增强重挂载；它自己持有作用域样式，避免热更新裸排版。
       useLayoutEffect(function () {
         if (props.view !== 'page') return;
@@ -2713,7 +3217,12 @@ window.__ModuleLoader__.load({
       const clearRef = useRef(null);
       const undoRef = useRef(null);
       const wasConfirming = useRef(false);
-      const hasRecords = settings.favorites.length + settings.recents.length + settings.hidden.length + Object.keys(settings.aliases).length > 0;
+      const organizeRef = useRef(null);
+      useEffect(function () {
+        const anchor = organizeRef.current;
+        return function () { if (settingsManager) settingsManager.close(anchor); };
+      }, []);
+      const hasRecords = settings.favorites.length + settings.recents.length + settings.hidden.length + Object.keys(settings.aliases).length + settings.collapsedSeries.length > 0;
       // 清空后如果用户在菜单中建立了新记录，不再用旧快照覆盖新选择。
       useEffect(function () {
         if (hasRecords && backup) { setBackup(null); setNotice(''); }
@@ -2727,7 +3236,7 @@ window.__ModuleLoader__.load({
       }, [confirming]);
       if (props.view !== 'page') return null;
       const clear = function () {
-        setBackup(readState());
+        setImportBackup(null); setBackup(readState());
         writeState(resetUserData(readState()));
         setConfirming(false);
         setNotice('settings.cleared');
@@ -2735,7 +3244,7 @@ window.__ModuleLoader__.load({
       const undo = function () {
         if (!backup) return;
         const current = readState();
-        if (current.favorites.length + current.recents.length + current.hidden.length + Object.keys(current.aliases).length > 0) {
+        if (current.favorites.length + current.recents.length + current.hidden.length + Object.keys(current.aliases).length + current.collapsedSeries.length > 0) {
           setBackup(null);
           return;
         }
@@ -2749,56 +3258,139 @@ window.__ModuleLoader__.load({
         ['settings.pins', settings.favorites.length], ['settings.recents', settings.recents.length],
         ['settings.aliases', Object.keys(settings.aliases).length], ['settings.hidden', settings.hidden.length],
       ];
+      const examples = [
+        { key: 'flash', name: 'DeepSeek-V4.1-Flash · x0.11', modelId: 'deepseek-v4.1-flash', label: 'DeepSeek-V4.1-Flash · x0.11' },
+        { key: 'pro', name: 'DeepSeek-V4-Pro · x0.51', modelId: 'deepseek-v4-pro', label: t('settings.sampleAlias') },
+      ];
+      const selectControl = function (field) {
+        const choices = { density: ['compact', 'standard', 'relaxed'], panelWidth: [300, 360, 440], panelHeight: [60, 70, 85], openOn: ['hover', 'click'], hoverDelay: [0, 150, 300], searchScope: ['local', 'all', 'last'], seriesState: ['expanded', 'collapsed', 'remember'], recentCount: [4, 8, 12] };
+        const label = t('settings.' + field);
+        const disabled = field === 'hoverDelay' && settings.openOn !== 'hover' || field === 'recentCount' && !settings.showRecents || field === 'seriesState' && !settings.groupSeries;
+        const hint = { panelWidth: 'previewWidth', seriesState: 'seriesInitialHint', reopen: 'reopenHint', sortMode: 'perProviderHint' }[field];
+        if (field === 'reopen' || field === 'sortMode') {
+          const onValue = field === 'reopen' ? 'continue' : 'provider', offValue = field === 'reopen' ? 'clear' : 'shared';
+          return h('div', { className: 'mo-form-row', key: field }, h('span', { className: 'mo-control-label', title: hint && t('settings.' + hint) }, label),
+            h('button', { type: 'button', className: 'mo-switch', role: 'switch', 'aria-label': label, 'aria-checked': settings[field] === onValue, 'data-value': settings[field], onClick: () => updateSettings({ [field]: settings[field] === onValue ? offValue : onValue }) }));
+        }
+        const options = choices[field].map(value => ({ value, label: t('settings.option.' + field + '.' + value) }));
+        return h('div', { className: 'mo-form-row', key: field }, h('span', { className: 'mo-control-label', title: hint && t('settings.' + hint) }, label),
+          field === 'seriesState' ? h(SettingsSelect, { label, value: settings[field], disabled, options, onChange: value => updateSettings({ [field]: value }) }) :
+          h('div', { className: 'mo-options', role: 'group', 'aria-label': label, 'data-setting': field }, ...options.map(option => {
+            let text = option.label;
+            if (field === 'panelWidth') text = t('settings.width.' + option.value);
+            if (field === 'panelHeight') text = option.value + '%';
+            if (field === 'openOn' || field === 'searchScope') text = t('settings.short.' + field + '.' + option.value);
+            if (field === 'hoverDelay') text = option.value ? option.value + 'ms' : t('settings.option.hoverDelay.0');
+            if (field === 'recentCount') text = String(option.value);
+            return h('button', { key: String(option.value), type: 'button', title: option.label, disabled, 'data-value': String(option.value), 'aria-pressed': settings[field] === option.value,
+              onClick: () => updateSettings({ [field]: option.value }) }, text);
+          })));
+      };
+      const switchControl = function (field) {
+        return h('div', { className: 'mo-switch-line', key: field }, h('span', { className: 'mo-control-label' }, t('settings.' + field)),
+          h('button', { type: 'button', className: 'mo-switch', role: 'switch', 'aria-label': t('settings.' + field), 'aria-checked': settings[field], onClick: () => updateSettings({ [field]: !settings[field] }) }));
+      };
+      async function importFile(event) {
+        const file = event.target.files && event.target.files[0];
+        event.target.value = '';
+        const request = ++importRequest.current;
+        setImportDraft(null); setNotice('');
+        if (!file) return;
+        try {
+          if (file.size > 1024 * 1024) throw new Error('size');
+          const text = await file.text();
+          if (request !== importRequest.current) return;
+          setImportDraft(readPreferenceBackup(text)); setImportMode('merge');
+        } catch { if (request === importRequest.current) setNotice('settings.importError'); }
+      }
+      function exportFile() {
+        let url, link;
+        try {
+          const blob = new window.Blob([JSON.stringify(makePreferenceBackup(readState()), null, 2)], { type: 'application/json' });
+          url = window.URL.createObjectURL(blob); link = document.createElement('a');
+          link.href = url; link.download = 'dsh-model-organizer-preferences.json';
+          document.body.appendChild(link); link.click(); setNotice('settings.exported');
+        } catch { setNotice('settings.exportError'); }
+        finally { if (link) link.remove(); if (url) window.setTimeout(() => window.URL.revokeObjectURL(url), 1000); }
+      }
+      const previewRows = orderEntries(examples, settings.sortOrder, '', {});
+      const previewCollapsed = settings.groupSeries && settings.seriesState === 'collapsed';
+      const sortControl = h('div', { className: 'mo-form-row' }, h('span', { className: 'mo-control-label', title: t('settings.sortHint') }, t('settings.sort')),
+        h(SettingsSelect, { label: t('settings.sort'), value: settings.sortOrder, onChange: value => updateSettings({ sortOrder: value }),
+          options: [['default', 'default'], ['name', 'name'], ['price-asc', 'asc'], ['price-desc', 'desc']].map(item => ({ value: item[0], label: t('settings.' + item[1]) })) }));
       return h('div', { className: 'mo-settings' },
-        h('div', { className: 'mo-hint' }, t('settings.note')),
-        h('section', { className: 'mo-card', 'aria-label': t('settings.fontSize') },
-          h('div', { className: 'mo-setting-row' },
-            h('div', { className: 'mo-setting-text' },
-              h('div', { className: 'mo-title' }, t('settings.fontSize')),
-              h('div', { className: 'mo-hint' }, t('settings.fontSizeHint'))),
-            h('div', { className: 'mo-options', role: 'group', 'aria-label': t('settings.fontSize') },
-              ...FONT_SIZES.map(function (size) {
-                return h('button', { key: size, type: 'button', 'aria-pressed': settings.fontSize === size,
-                  onClick: function () { updateSettings({ fontSize: size }); } }, String(size));
-              }))),
-          h('div', { className: 'mo-preview', 'aria-label': t('settings.preview'), style: { fontSize: settings.fontSize + 'px' } },
-            h('div', null, h('div', null, 'DeepSeek-V4.1-Flash'), h('div', { className: 'mo-hint', style: { fontSize: '0.85em' } }, t('settings.previewProvider'))),
-            h('span', { className: 'mo-preview-star', 'aria-hidden': true }, '★'))),
-        h('section', { className: 'mo-card', 'aria-label': t('settings.browse') },
-          h('div', { className: 'mo-title' }, t('settings.browse')),
-          h('div', { className: 'mo-setting-row' },
-            h('div', { className: 'mo-setting-text' }, h('div', null, t('settings.series')), h('div', { className: 'mo-hint' }, t('settings.seriesHint'))),
-            h('button', { type: 'button', role: 'switch', 'aria-label': t('settings.series'), 'aria-checked': settings.groupSeries, onClick: () => updateSettings({ groupSeries: !settings.groupSeries }) }, t(settings.groupSeries ? 'settings.on' : 'settings.off'))),
-          h('div', { className: 'mo-setting-row' }, h('span', null, t('settings.sort')),
-            h('select', { 'aria-label': t('settings.sort'), value: settings.sortOrder, onChange: event => updateSettings({ sortOrder: event.target.value }) },
-              ...[['default', 'default'], ['name', 'name'], ['price-asc', 'asc'], ['price-desc', 'desc']].map(item => h('option', { key: item[0], value: item[0] }, t('settings.' + item[1]))))),
-          h('div', { className: 'mo-tree-preview', 'aria-label': t('settings.preview') },
-            settings.groupSeries ? h('div', { className: 'mo-hint' }, '▾ DeepSeek · 2') : null,
-            ...['DeepSeek-V4.1-Flash · x0.11', 'DeepSeek-V4-Pro · x0.51'].map(name => h('div', { key: name, className: settings.groupSeries ? 'mo-tree-model' : '' }, name))),
-          h('div', { className: 'mo-hint' }, t('settings.sortHint'))),
-        h('section', { className: 'mo-card', 'aria-label': t('settings.data') },
-          h('div', { className: 'mo-setting-text' }, h('div', { className: 'mo-title' }, t('settings.data')),
-            h('div', { className: 'mo-hint' }, t('settings.dataHint'))),
-          h('div', { className: 'mo-stats' }, ...stats.map(function (item) {
-            return h('span', { key: item[0], className: 'mo-stat' }, h('strong', null, item[1]), h('span', { className: 'mo-hint' }, t(item[0])));
-          })),
-          h('div', { className: 'mo-setting-row' },
-            h('div', { className: 'mo-hint' }, t('settings.resetHint')),
-            h('button', { ref: clearRef, type: 'button', className: 'mo-danger', disabled: !hasRecords || confirming,
-              onClick: function () { setConfirming(true); setNotice(''); } }, t('settings.resetButton'))),
-          confirming ? h('div', { className: 'mo-confirm', role: 'group', 'aria-label': t('settings.reset'),
-            onKeyDown: function (event) { if (event.key === 'Escape') { event.stopPropagation(); setConfirming(false); } } },
-            h('div', { className: 'mo-hint' }, t('settings.resetConfirm')),
-            h('div', { className: 'mo-actions' },
-              h('button', { type: 'button', autoFocus: true, onClick: function () { setConfirming(false); } }, t('settings.cancel')),
-              h('button', { type: 'button', className: 'mo-danger', onClick: clear }, t('settings.confirmButton')))) : null,
-          notice ? h('div', { className: 'mo-setting-row' }, h('span', { className: 'mo-hint', role: 'status' }, t(notice)),
-            backup ? h('button', { ref: undoRef, type: 'button', onClick: undo }, t('settings.undo')) : null) : null),
-        h('details', { className: 'mo-card' }, h('summary', null, t('settings.help')),
-          h('div', { className: 'mo-help mo-hint' },
-            ...['settings.helpProvider', 'settings.helpModels', 'settings.helpManage', 'settings.helpKeys'].map(function (key) {
-              return h('div', { key: key }, t(key));
-            }))));
+        h('div', { className: 'mo-section-head' }, h('h3', { className: 'mo-title' }, t('settings.preferences')),
+          h('button', { type: 'button', className: 'mo-text-button', onClick: function () {
+            updateSettings(Object.assign({}, BROWSE_DEFAULTS, { fontSize: DEFAULT_FONT_SIZE, groupSeries: true, sortOrder: 'default' })); setNotice('settings.defaultsDone');
+          } }, t('settings.defaults'))),
+        h('section', { className: 'mo-hero', 'aria-label': t('settings.preferences') },
+          h('section', { className: 'mo-preview-stage', 'aria-label': t('settings.preview'), title: t('settings.previewWidth') },
+            h('div', { className: 'mo-preview-heading' }, h('span', null, t('settings.preview')), h('span', null, t('settings.live'))),
+            h('div', { className: 'mo-preview', 'data-density': settings.density, style: { fontSize: settings.fontSize + 'px', width: settings.panelWidth + 'px', maxWidth: '100%' } },
+              h('div', { className: 'mo-preview-top' }, h('strong', null, t('settings.sampleProvider')), h('span', { className: 'mo-preview-count' }, '2')),
+              settings.groupSeries ? h('div', { className: 'mo-preview-group' }, (previewCollapsed ? '›' : '⌄') + ' DeepSeek · 2') : null,
+              ...(previewCollapsed ? [] : previewRows).map(item => h('div', { key: item.key, className: 'mo-preview-model', 'data-key': item.key, 'data-indented': settings.groupSeries, 'data-selected': item.key === 'flash', title: item.name },
+                h('span', { className: 'mo-preview-name' }, item.label), item.label !== item.name ? h('span', { className: 'mo-preview-alias', title: t('settings.aliasMark'), 'aria-label': t('settings.aliasMark') }, '✎') : null,
+                h('span', { className: 'mo-preview-status', 'aria-hidden': true }, item.key === 'flash' ? '✓  ★' : '☆'))))),
+          h('div', { className: 'mo-common' },
+            h('div', { className: 'mo-form-row' }, h('div', { className: 'mo-control-label' }, t('settings.fontSize')),
+              h('div', { className: 'mo-options', role: 'group', 'aria-label': t('settings.fontSize') },
+                ...FONT_SIZES.map((size, index) => h('button', { key: size, type: 'button', 'aria-label': String(size), 'aria-pressed': settings.fontSize === size,
+                  onClick: () => updateSettings({ fontSize: size }) }, h('span', null, t('settings.' + ['small', 'medium', 'large'][index])), h('small', null, String(size)))))), selectControl('density'), h('div', { className: 'mo-form-row' }, h('span', { className: 'mo-control-label', title: t('settings.seriesHint') }, t('settings.series')),
+            h('button', { type: 'button', className: 'mo-switch', role: 'switch', 'aria-label': t('settings.series'), 'aria-checked': settings.groupSeries, onClick: () => updateSettings({ groupSeries: !settings.groupSeries }) })), sortControl)),
+        h('details', { className: 'mo-disclosure', 'data-settings-section': 'sizing' },
+          h('summary', null, h('span', null, t('settings.advancedDisplay')), h('span', { className: 'mo-summary-value' }, settings.panelWidth + 'px · ' + settings.panelHeight + '%')),
+          h('div', { className: 'mo-detail-grid' }, selectControl('panelWidth'), selectControl('panelHeight'))),
+        h('details', { className: 'mo-disclosure', 'data-settings-section': 'browsing' },
+          h('summary', null, h('span', null, t('settings.browsing')), h('span', { className: 'mo-summary-value' }, t('settings.short.openOn.' + settings.openOn) + ' · ' + t('settings.short.searchScope.' + settings.searchScope))),
+          h('div', { className: 'mo-detail-grid' }, selectControl('openOn'), selectControl('searchScope'), settings.openOn === 'hover' ? selectControl('hoverDelay') : null, selectControl('reopen'), selectControl('seriesState'), selectControl('sortMode'))),
+        h('section', { className: 'mo-overview-bar', 'aria-label': t('settings.overview'), title: t('settings.overviewHint') },
+          h('h3', { className: 'mo-title' }, t('settings.overview')), switchControl('showFavorites'), switchControl('showRecents'), settings.showRecents ? selectControl('recentCount') : null),
+        h('section', { className: 'mo-records', 'aria-label': t('settings.data') },
+          h('div', { className: 'mo-setting-row' }, h('div', { className: 'mo-record-summary' }, h('h3', { className: 'mo-title' }, t('settings.data')),
+            h('div', { className: 'mo-stats' }, ...stats.map(item => h('span', { key: item[0], className: 'mo-stat' }, h('strong', null, item[1]), h('span', { className: 'mo-hint' }, t(item[0])))))),
+            h('button', { ref: organizeRef, type: 'button', onClick: function () {
+              if (!settingsManager || !settingsManager.open(organizeRef.current)) setNotice('settings.directoryUnavailable'); else setNotice('');
+            } }, t('settings.organize'))),
+          h('details', { className: 'mo-data-tools' }, h('summary', null, t('settings.dataTools')),
+            h('div', { className: 'mo-transfer', 'data-section': 'backup' },
+          h('div', { className: 'mo-record-body' }, h('span', { className: 'mo-hint' }, t('settings.backupHint')),
+            h('div', { className: 'mo-actions' }, h('button', { type: 'button', onClick: exportFile }, t('settings.export')),
+              h('button', { type: 'button', onClick: () => fileRef.current.click() }, t('settings.import'))),
+            h('input', { ref: fileRef, type: 'file', accept: '.json,application/json', hidden: true, 'aria-label': t('settings.import'), onChange: importFile }),
+            importDraft ? h('div', { className: 'mo-confirm', 'aria-label': t('settings.importPreview') },
+              h('strong', { className: 'mo-control-label' }, t('settings.importPreview')),
+              h('span', { className: 'mo-hint' }, t('settings.importSummary', { pins: importDraft.favorites.length, recents: importDraft.recents.length, aliases: Object.keys(importDraft.aliases).length, hidden: importDraft.hidden.length, collapsed: importDraft.collapsedSeries.length, sorts: Object.keys(importDraft.providerSorts).length })),
+              h('details', null, h('summary', null, t('settings.importPreferences')),
+                h('div', { className: 'mo-help' },
+                  h('span', { className: 'mo-hint' }, t('settings.fontSize') + ': ' + importDraft.fontSize + ' · ' + t('settings.series') + ': ' + t(importDraft.groupSeries ? 'settings.on' : 'settings.off') + ' · ' + t('settings.sort') + ': ' + t('settings.' + { default: 'default', name: 'name', 'price-asc': 'asc', 'price-desc': 'desc' }[importDraft.sortOrder])),
+                  ...Object.keys(BROWSE_DEFAULTS).map(field => h('span', { key: field, className: 'mo-hint' }, t('settings.' + field) + ': ' + t(typeof importDraft[field] === 'boolean' ? (importDraft[field] ? 'settings.on' : 'settings.off') : 'settings.option.' + field + '.' + importDraft[field]))))),
+              h('div', { className: 'mo-control' }, h('span', { className: 'mo-control-label' }, t('settings.importMode')),
+                h(SettingsSelect, { label: t('settings.importMode'), value: importMode, onChange: setImportMode, options: [{ value: 'merge', label: t('settings.merge') }, { value: 'replace', label: t('settings.replace') }] })),
+              h('span', { className: 'mo-hint' }, t('settings.mergeHint')),
+              h('div', { className: 'mo-actions' }, h('button', { type: 'button', onClick: () => setImportDraft(null) }, t('settings.cancel')),
+                h('button', { type: 'button', onClick: function () {
+                  const before = readState(), next = mergePreferenceBackup(before, importDraft, importMode);
+                  writeState(next); setImportBackup({ before, after: serializeState(next) }); setBackup(null); setImportDraft(null); setNotice('settings.imported');
+                } }, t('settings.importApply')))) : null,
+            importBackup ? h('button', { type: 'button', onClick: function () {
+              if (serializeState(readState()) === importBackup.after) { writeState(importBackup.before); setNotice('settings.importUndone'); }
+              setImportBackup(null);
+            } }, t('settings.importUndo')) : null)), h('div', { className: 'mo-record-tools' },
+            h('div', { className: 'mo-record-body' },
+              h('div', { className: 'mo-setting-row' }, h('span', { className: 'mo-hint' }, t('settings.resetHint')),
+                h('button', { ref: clearRef, type: 'button', className: 'mo-danger', disabled: !hasRecords || confirming, onClick: function () { setConfirming(true); setNotice(''); } }, t('settings.resetButton'))),
+              confirming ? h('div', { className: 'mo-confirm', role: 'group', 'aria-label': t('settings.reset'), onKeyDown: function (event) { if (event.key === 'Escape') { event.stopPropagation(); setConfirming(false); } } },
+                h('div', { className: 'mo-hint' }, t('settings.resetConfirm')),
+                h('div', { className: 'mo-actions' }, h('button', { type: 'button', autoFocus: true, onClick: () => setConfirming(false) }, t('settings.cancel')), h('button', { type: 'button', className: 'mo-danger', onClick: clear }, t('settings.confirmButton')))) : null))),
+          backup ? h('button', { ref: undoRef, type: 'button', onClick: undo }, t('settings.undo')) : null),
+        notice ? h('div', { className: 'mo-hint', role: 'status' }, t(notice)) : null,
+        h('details', { className: 'mo-help-disclosure' }, h('summary', null, t('settings.help')),
+          h('div', { className: 'mo-help' }, ...[
+            ['helpBrowse', 'helpProvider'], ['helpSearch', 'helpModels'], ['helpOrganize', 'helpManage'], ['helpKeyboard', 'helpKeys'],
+          ].map(item => h('div', { key: item[0], className: 'mo-help-item' }, h('strong', null, t('settings.' + item[0])), h('span', { className: 'mo-hint' }, t('settings.' + item[1])))))),
+        h('div', { className: 'mo-hint mo-settings-note' }, t('settings.note')));
+
     }
 
     return {

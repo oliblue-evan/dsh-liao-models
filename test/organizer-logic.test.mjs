@@ -147,9 +147,9 @@ test('pushRecent 去重置前并截断', () => {
   assert.deepEqual(S.pushRecent([], 'a'), ['a']);
   assert.deepEqual(S.pushRecent(['a', 'b'], 'b'), ['b', 'a'], '已在表内应移到最前');
   let list = [];
-  for (let i = 0; i < 20; i++) list = S.pushRecent(list, 'm' + i);
+  for (let i = 0; i < S.RECENTS_CAP + 4; i++) list = S.pushRecent(list, 'm' + i);
   assert.equal(list.length, S.RECENTS_CAP);
-  assert.equal(list[0], 'm19', '最新的在最前');
+  assert.equal(list[0], 'm' + (S.RECENTS_CAP + 3), '最新的在最前');
 });
 
 test('resolveLabel 有别名用别名，否则用原名', () => {
