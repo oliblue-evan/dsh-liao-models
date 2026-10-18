@@ -13,12 +13,12 @@ import assert from 'node:assert/strict';
 import { createPluginEnv, mountSettingsCard, settle } from './load-client.mjs';
 import { mountModelMenu, defaultSpec, openPanelViaHeading } from './harness.mjs';
 
-const KEY = 'dsh-model-organizer-state-v1';
-const SLOT = 'plugins.bundle.config|dsh-model-organizer';
+const KEY = 'dsh-liao-models-state-v1';
+const SLOT = 'plugins.bundle.config|dsh-liao-models';
 
 const stateOf = (env) => JSON.parse(env.window.localStorage.getItem(KEY));
-const panelOf = (env) => env.document.getElementById('dsh-model-organizer-panel');
-const panel = (env) => env.document.getElementById('dsh-model-organizer-panel');
+const panelOf = (env) => env.document.getElementById('dsh-liao-models-panel');
+const panel = (env) => env.document.getElementById('dsh-liao-models-panel');
 
 /** 渲染设置卡并等 React 把 effects 跑完。 */
 async function renderCard(env, props) {
@@ -38,7 +38,7 @@ test('★ 注册契约：槽位名/key/locale 都必须是官方约定', async (
   assert.ok(entry, '设置卡应注册进 plugins.bundle.config');
   assert.equal(entry.spec.name, 'plugins.bundle.config');
   // key 必须是 **npm 包名**（槽位契约：以 bundle 的包名为键）
-  assert.equal(entry.spec.key, 'dsh-model-organizer');
+  assert.equal(entry.spec.key, 'dsh-liao-models');
   assert.equal(entry.spec.locale, 'model-organizer', '应声明 locale 命名空间');
   assert.equal(typeof entry.Component, 'function');
   env.dispose();
@@ -249,7 +249,7 @@ test('设置槽独立持有样式，旧卡卸载不移除新卡的样式', async
   const env = createPluginEnv();
   const first = await renderCard(env);
   const second = await renderCard(env);
-  const style = () => env.document.getElementById('dsh-model-organizer-settings-style');
+  const style = () => env.document.getElementById('dsh-liao-models-settings-style');
   assert.ok(style().textContent.includes('.mo-settings .mo-hero'));
   first.unmount();
   assert.ok(style(), '旧设置卡清理必须保留新卡样式');

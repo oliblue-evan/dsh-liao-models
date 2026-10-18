@@ -1,5 +1,5 @@
 /**
- * dsh-model-organizer — 宿主半边。
+ * dsh-liao-models — 宿主半边。
  *
  * 这个插件的全部可见行为都在浏览器半边完成（见 ./client.js）：它把 composer 的
  * 模型选择菜单按来源（provider）折叠、滑出子面板，并加上置顶/最近/搜索/别名/隐藏。
@@ -19,7 +19,7 @@
  */
 
 /** 插件名，必须与 package.json 的 name 一致（loader 用它做 id 寻址）。 */
-export const name = 'dsh-model-organizer';
+export const name = 'dsh-liao-models';
 
 /**
  * 不依赖任何宿主服务：没有服务就无法在缺服务的 profile 里退化——这里干脆不声明，
@@ -33,5 +33,5 @@ export const inject = [];
  * @param {import('@deepseek-ai/cordis').Context} ctx - 当前 profile 的 cordis 上下文。
  */
 export function apply(ctx) {
-  ctx.logger.info('dsh-model-organizer: started (client-side model-menu organizing)');
+  ctx.logger.info('dsh-liao-models: started (client-side model-menu organizing)');
 }

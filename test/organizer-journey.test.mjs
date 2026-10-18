@@ -16,8 +16,8 @@ import { attachKernelBehavior, realClick } from './kernel-behavior.mjs';
 const moKey = (provider, model) => JSON.stringify([provider, model]);
 
 
-const PANEL = 'dsh-model-organizer-panel';
-const KEY = 'dsh-model-organizer-state-v1';
+const PANEL = 'dsh-liao-models-panel';
+const KEY = 'dsh-liao-models-state-v1';
 
 /** 建环境 + 菜单 + 内核行为模拟。 */
 async function journey() {

@@ -1,7 +1,7 @@
-# dsh-model-organizer 的 bundle 层：挂一行宿主条目。
+# dsh-liao-models 的 bundle 层：挂一行宿主条目。
 #
 # 宿主半边只声明插件（无服务、无路由、无持久化）；全部界面在浏览器半边完成，
 # 由同一 package.json 的 `dsh.client` 段声明（platform: web）。
 - insert:
-    - id: dsh-model-organizer
-      name: 'dsh-model-organizer'
+    - id: dsh-liao-models
+      name: 'dsh-liao-models'

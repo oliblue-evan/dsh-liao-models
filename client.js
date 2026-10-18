@@ -1,5 +1,5 @@
 /**
- * dsh-model-organizer —— 客户端半边（浏览器 bundle）。
+ * dsh-liao-models —— 客户端半边（浏览器 bundle）。
  *
  * ============================================================================
  * 这是什么
@@ -57,7 +57,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-model-organizer',
+  id: 'dsh-liao-models',
   factory(require) {
     // React 来自浏览器模块表（宿主注入），不需要自己装 React / 找 CDN。
     // 只有设置卡（注册进 plugins.bundle.config 槽位）需要 React；
@@ -116,12 +116,12 @@ window.__ModuleLoader__.load({
       return state.sortMode === 'provider' && provider && state.providerSorts[provider] || state.sortOrder;
     }
     function makePreferenceBackup(state) {
-      return { format: 'dsh-model-organizer', version: 1, state: normalizeState(state) };
+      return { format: 'dsh-liao-models', version: 1, state: normalizeState(state) };
     }
     function readPreferenceBackup(text) {
       if (typeof text !== 'string' || text.length > 1024 * 1024) throw new Error('backup size');
       const data = JSON.parse(text), value = data && data.state;
-      if (data.format !== 'dsh-model-organizer' || data.version !== 1 || !value || typeof value !== 'object' || Array.isArray(value) || value.version !== STATE_VERSION) throw new Error('backup format');
+      if ((data.format !== 'dsh-liao-models' && data.format !== 'dsh-model-organizer') || data.version !== 1 || !value || typeof value !== 'object' || Array.isArray(value) || value.version !== STATE_VERSION) throw new Error('backup format');
       function validKey(key) {
         if (typeof key !== 'string') return false;
         try { const parts = JSON.parse(key); return Array.isArray(parts) && (parts.length === 2 || parts.length === 3 && parts[0] === 'id') && parts.every(part => typeof part === 'string' && part.length > 0); } catch { return false; }
@@ -602,9 +602,11 @@ window.__ModuleLoader__.load({
     // ─────────────────────────────────────────────────────────────────────
 
     /** 注入样式表的键，便于按 id 复用与卸载。 */
-    const STYLE_ID = 'dsh-model-organizer-style';
+    const STYLE_ID = 'dsh-liao-models-style';
     /** 偏好存储键。 */
-    const STORAGE_KEY = 'dsh-model-organizer-state-v1';
+    const STORAGE_KEY = 'dsh-liao-models-state-v1';
+    /** 改名前的偏好键；只读一次并迁移到新键。 */
+    const LEGACY_STORAGE_KEYS = ['dsh-model-organizer-state-v1'];
     /** 打在模型菜单上的作用域属性：所有 CSS 都挂在它之下。 */
     const SCOPE_ATTR = 'data-mo-scope';
     /** 打在来源分组上的属性：标记已处理。 */
@@ -616,7 +618,7 @@ window.__ModuleLoader__.load({
     /** 样式表所有者令牌属性：dispose 只在令牌属于自己时才删样式（防 HMR 误删活实例）。 */
     const STYLE_OWNER_ATTR = 'data-mo-style-owner';
     /** 面板根节点 id。 */
-    const PANEL_ID = 'dsh-model-organizer-panel';
+    const PANEL_ID = 'dsh-liao-models-panel';
 
     /** 全局单例引用（热重载时先拆旧再建新）。 */
     let INSTANCE = null;
@@ -669,10 +671,29 @@ window.__ModuleLoader__.load({
     /** 读当前偏好（容忍坏数据）。 */
     function readState() {
       try {
-        return normalizeState(window.localStorage.getItem(STORAGE_KEY));
+        return readStoredState(window.localStorage);
       } catch (error) {
         return emptyState();
       }
+    }
+
+    /** 读取偏好；新键不存在时把旧插件的偏好迁移过来。 */
+    function readStoredState(storage) {
+      let raw = storage.getItem(STORAGE_KEY);
+      if (raw === null) {
+        for (const key of LEGACY_STORAGE_KEYS) {
+          const legacy = storage.getItem(key);
+          if (legacy === null) continue;
+          raw = legacy;
+          try {
+            storage.setItem(STORAGE_KEY, legacy);
+          } catch (error) {
+            /* 隐私模式下迁移失败，仍按旧数据工作 */
+          }
+          break;
+        }
+      }
+      return normalizeState(raw);
     }
 
     /**
@@ -1028,7 +1049,7 @@ window.__ModuleLoader__.load({
       }
       // DSH claims unowned styles for the next materialized module, then removes
       // them with that module. The instance token alone does not identify our package.
-      style.setAttribute('data-plugin', 'dsh-model-organizer');
+      style.setAttribute('data-plugin', 'dsh-liao-models');
       style.setAttribute(STYLE_OWNER_ATTR, token);
       style.textContent = buildCss();
     }
@@ -1298,7 +1319,7 @@ window.__ModuleLoader__.load({
       /** 读取偏好。 */
       function loadState() {
         try {
-          return normalizeState(win.localStorage.getItem(STORAGE_KEY));
+          return readStoredState(win.localStorage);
         } catch (error) {
           return emptyState();
         }
@@ -3095,7 +3116,7 @@ window.__ModuleLoader__.load({
       }
       function show() {
         if (disabled || !options.length) return;
-        document.dispatchEvent(new window.CustomEvent('dsh-model-organizer-select-open', { detail: id }));
+        document.dispatchEvent(new window.CustomEvent('dsh-liao-models-select-open', { detail: id }));
         setPosition(null); setActive(selected); setOpen(true);
       }
       function choose(index) {
@@ -3156,14 +3177,14 @@ window.__ModuleLoader__.load({
         place();
         document.addEventListener('pointerdown', outside, true);
         document.addEventListener('focusin', outside, true);
-        document.addEventListener('dsh-model-organizer-select-open', another);
+        document.addEventListener('dsh-liao-models-select-open', another);
         document.addEventListener('toggle', disclosure, true);
         window.addEventListener('resize', place);
         window.addEventListener('scroll', place, true);
         return function () {
           document.removeEventListener('pointerdown', outside, true);
           document.removeEventListener('focusin', outside, true);
-          document.removeEventListener('dsh-model-organizer-select-open', another);
+          document.removeEventListener('dsh-liao-models-select-open', another);
           document.removeEventListener('toggle', disclosure, true);
           window.removeEventListener('resize', place);
           window.removeEventListener('scroll', place, true);
@@ -3177,7 +3198,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'mo-select' },
         h('button', { ref: triggerRef, type: 'button', className: 'mo-select-trigger', role: 'combobox', 'aria-label': label, 'aria-haspopup': 'listbox', 'aria-expanded': open, 'aria-controls': open ? id : undefined, 'aria-activedescendant': open ? id + '-' + active : undefined, 'data-value': String(value), disabled,
           onClick: () => open ? close(false) : show(), onKeyDown }, h('span', { className: 'mo-select-value' }, options[selected] ? options[selected].label : ''), arrow),
-        open ? createPortal(h('div', { className: 'mo-settings mo-select-portal', 'data-plugin': 'dsh-model-organizer', 'data-placement': position && position.upward ? 'above' : 'below', style: { left: position ? position.left + 'px' : 0, top: position ? position.top + 'px' : 0, width: position ? position.width + 'px' : '180px', visibility: position ? 'visible' : 'hidden' }, onKeyDown },
+        open ? createPortal(h('div', { className: 'mo-settings mo-select-portal', 'data-plugin': 'dsh-liao-models', 'data-placement': position && position.upward ? 'above' : 'below', style: { left: position ? position.left + 'px' : 0, top: position ? position.top + 'px' : 0, width: position ? position.width + 'px' : '180px', visibility: position ? 'visible' : 'hidden' }, onKeyDown },
           h('div', { ref: menuRef, id, role: 'listbox', 'aria-label': label, className: 'mo-select-menu', style: { maxHeight: position ? position.maxHeight + 'px' : '280px' } },
             ...options.map((option, index) => h('button', { key: String(option.value), id: id + '-' + index, type: 'button', role: 'option', tabIndex: -1, 'aria-selected': option.value === value, 'data-value': String(option.value), 'data-index': index, 'data-active': index === active,
               onMouseDown: event => event.preventDefault(), onMouseMove: () => setActive(index), onClick: () => choose(index) }, h('span', { className: 'mo-select-option-label' }, option.label),
@@ -3203,11 +3224,11 @@ window.__ModuleLoader__.load({
       // 设置槽可能独立于菜单增强重挂载；它自己持有作用域样式，避免热更新裸排版。
       useLayoutEffect(function () {
         if (props.view !== 'page') return;
-        const id = 'dsh-model-organizer-settings-style';
+        const id = 'dsh-liao-models-settings-style';
         const token = String(Date.now()) + '-' + String(Math.random());
         let style = document.getElementById(id);
         if (!style) { style = document.createElement('style'); style.id = id; document.head.appendChild(style); }
-        style.setAttribute('data-plugin', 'dsh-model-organizer');
+        style.setAttribute('data-plugin', 'dsh-liao-models');
         style.setAttribute('data-owner', token);
         style.textContent = buildSettingsCss();
         return function () {
@@ -3308,7 +3329,7 @@ window.__ModuleLoader__.load({
         try {
           const blob = new window.Blob([JSON.stringify(makePreferenceBackup(readState()), null, 2)], { type: 'application/json' });
           url = window.URL.createObjectURL(blob); link = document.createElement('a');
-          link.href = url; link.download = 'dsh-model-organizer-preferences.json';
+          link.href = url; link.download = 'dsh-liao-models-preferences.json';
           document.body.appendChild(link); link.click(); setNotice('settings.exported');
         } catch { setNotice('settings.exportError'); }
         finally { if (link) link.remove(); if (url) window.setTimeout(() => window.URL.revokeObjectURL(url), 1000); }
@@ -3399,7 +3420,7 @@ window.__ModuleLoader__.load({
         // 词典：注册进宿主 locale，槽位用 locale: NS 取词；缺失时组件内兜底中文。
         ctx.effect(function () {
           return ctx.locale.register(NS, { zh: ZH, en: EN });
-        }, 'dsh-model-organizer: dictionaries');
+        }, 'dsh-liao-models: dictionaries');
         // 设置卡：bundle 自己的配置槽（渲染在本 bundle 插件页的描述与行之间）。
         // 【必须用 ctx.effect 包住】slots.inject 返回 dispose；不包住的话
         // HMR 拆旧实例时设置卡会泄漏下来继续渲染（dsh-usage-pill 踩过同款坑）。
@@ -3407,11 +3428,11 @@ window.__ModuleLoader__.load({
           return ctx.slots.inject('plugins.bundle.config', function () {
             ctx.slots.register({
               name: 'plugins.bundle.config',
-              key: 'dsh-model-organizer',
+              key: 'dsh-liao-models',
               locale: NS,
             }, ModelOrganizerSettings);
           });
-        }, 'dsh-model-organizer: settings card');
+        }, 'dsh-liao-models: settings card');
         // 客户端 bundle 在窗口就绪后执行；这里统一在 document 上挂增强。
         // 用 ctx.effect 托管生命周期：插件卸载时宿主会调用返回的清理函数。
         ctx.effect(function () {
@@ -3447,7 +3468,7 @@ window.__ModuleLoader__.load({
             };
           }
           return boot();
-        }, 'dsh-model-organizer: model-menu organizing');
+        }, 'dsh-liao-models: model-menu organizing');
       },
     };
   },

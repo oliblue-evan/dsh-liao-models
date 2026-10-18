@@ -13,8 +13,8 @@ import { mountModelMenu, defaultSpec, openPanelViaHeading } from './harness.mjs'
 /** 与插件 modelKey 等价：JSON 数组编码（键格式 v2）。 */
 const moKey = (provider, model) => JSON.stringify([provider, model]);
 
-const PANEL = 'dsh-model-organizer-panel';
-const KEY = 'dsh-model-organizer-state-v1';
+const PANEL = 'dsh-liao-models-panel';
+const KEY = 'dsh-liao-models-state-v1';
 
 const panelOf = (env) => env.document.getElementById(PANEL);
 /** 始终按**当前 DOM** 取模型按钮（不能用旧引用 —— 这正是 BUG1 的前提）。 */
@@ -113,7 +113,7 @@ test('★ BUG3：单击标题后菜单在 240ms 内消失，不得留下空白�
   await settle(env.window, 500);
 
   assert.equal(panelOf(env).hidden, true, '★ 菜单消失后不得留下可见的孤儿面板');
-  assert.equal(env.document.getElementById('dsh-model-organizer-panel').hidden, true, '菜单消失后面板也应收起');
+  assert.equal(env.document.getElementById('dsh-liao-models-panel').hidden, true, '菜单消失后面板也应收起');
   // 面板内容为空时更不该可见 —— 一并确认它确实没有渲染内容
   assert.equal(panelOf(env).getAttribute('hidden') !== null, true, '已有内容仍必须不可见');
   env.dispose();
@@ -406,18 +406,18 @@ test('★ L4：HMR 旧实例延迟拆除，不得删掉活实例的样式表', a
 
   env.plugin.apply(env.ctx);
   await settle(env.window, 300);
-  assert.ok(env.document.getElementById('dsh-model-organizer-style'), '首次 apply 应有样式');
+  assert.ok(env.document.getElementById('dsh-liao-models-style'), '首次 apply 应有样式');
 
   env.plugin.apply(env.ctx); // 单例守卫会先拆旧实例
   await settle(env.window, 300);
-  assert.ok(env.document.getElementById('dsh-model-organizer-style'), '二次 apply 后应有样式');
+  assert.ok(env.document.getElementById('dsh-liao-models-style'), '二次 apply 后应有样式');
 
   // 宿主延迟拆除**旧** effect
   env.disposers[0]();
   await settle(env.window, 200);
 
-  const style = env.document.getElementById('dsh-model-organizer-style');
-  const panel = env.document.getElementById('dsh-model-organizer-panel');
+  const style = env.document.getElementById('dsh-liao-models-style');
+  const panel = env.document.getElementById('dsh-liao-models-panel');
   assert.ok(panel, '活实例的面板应仍在');
   assert.ok(style, '★ 活实例的样式表不得被旧 disposer 删除');
   assert.ok(style.textContent.includes('[data-mo-scope="1"]'), '样式内容应完好');

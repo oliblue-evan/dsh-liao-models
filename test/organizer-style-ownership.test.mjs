@@ -35,10 +35,10 @@ test('真实 rc.2 加载器清理其他插件时，菜单和设置页样式保�
     const view = mountModelMenu(env.document, defaultSpec());
     await settle(env.window);
     await act(async () => { card = mountSettingsCard(env); });
-    const styles = ['dsh-model-organizer-style', 'dsh-model-organizer-settings-style'].map(id => env.document.getElementById(id));
+    const styles = ['dsh-liao-models-style', 'dsh-liao-models-settings-style'].map(id => env.document.getElementById(id));
     assert.ok(styles.every(Boolean), 'Both real style injection paths must have mounted');
     const display = env.window.getComputedStyle(view.items[1]).display;
-    const preferences = env.window.localStorage.getItem('dsh-model-organizer-state-v1');
+    const preferences = env.window.localStorage.getItem('dsh-liao-models-state-v1');
 
     let registration;
     env.window.__ModuleLoader__ = { load: value => { registration = value; } };
@@ -62,10 +62,10 @@ test('真实 rc.2 加载器清理其他插件时，菜单和设置页样式保�
       modules.updateManifest({ modules: [], plugins: [] }, []);
       modules.prune([]);
       assert.ok(styles.every(style => style.isConnected), `Foreign cleanup removed organizer styles claimed as ${owners}`);
-      assert.deepEqual(owners, ['dsh-model-organizer', 'dsh-model-organizer']);
+      assert.deepEqual(owners, ['dsh-liao-models', 'dsh-liao-models']);
       assert.equal(env.document.querySelector(`style[data-plugin="${id}"]`), null);
       assert.equal(env.window.getComputedStyle(view.items[1]).display, display);
-      assert.equal(env.window.localStorage.getItem('dsh-model-organizer-state-v1'), preferences);
+      assert.equal(env.window.localStorage.getItem('dsh-liao-models-state-v1'), preferences);
     }
 
     await act(async () => { card.unmount(); card = null; });

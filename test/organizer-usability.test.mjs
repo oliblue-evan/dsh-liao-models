@@ -5,7 +5,7 @@ import { mountModelMenu, defaultSpec, openPanelViaHeading } from './harness.mjs'
 import { attachKernelBehavior, realClick } from './kernel-behavior.mjs';
 
 const keyOf = (provider, model) => JSON.stringify([provider, model]);
-const stateOf = (env) => JSON.parse(env.window.localStorage.getItem('dsh-model-organizer-state-v1'));
+const stateOf = (env) => JSON.parse(env.window.localStorage.getItem('dsh-liao-models-state-v1'));
 const input = (env, node, value) => {
   node.value = value;
   node.dispatchEvent(new env.window.Event('input', { bubbles: true }));
@@ -139,7 +139,7 @@ test('达到置顶上限时给出提示，保留原有置顶', async (t) => {
   const env = createPluginEnv({ autoMount: false });
   t.after(() => env.dispose());
   const existing = Array.from({ length: 12 }, (_, i) => keyOf('old', String(i)));
-  env.window.localStorage.setItem('dsh-model-organizer-state-v1', JSON.stringify({ version: 4, favorites: existing }));
+  env.window.localStorage.setItem('dsh-liao-models-state-v1', JSON.stringify({ version: 4, favorites: existing }));
   env.plugin.apply(env.ctx);
   const view = mountModelMenu(env.document, defaultSpec());
   await settle(env.window);

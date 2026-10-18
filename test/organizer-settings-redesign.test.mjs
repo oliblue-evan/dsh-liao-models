@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createPluginEnv, mountSettingsCard, settle, chooseSetting } from './load-client.mjs';
-const KEY='dsh-model-organizer-state-v1';
+const KEY='dsh-liao-models-state-v1';
 const key=JSON.stringify(['id','sample','deepseek-flash']);
 const records={favorites:[key],recents:[key],hidden:[],aliases:{[key]:'小闪'},collapsedSeries:['saved-collapse']};
 const groups=[{id:'sample',name:'示例渠道',models:[{id:'deepseek-flash',name:'DeepSeek Flash · x0.11'},{id:'deepseek-pro',name:'DeepSeek Pro · x0.51'}]}];
@@ -42,7 +42,7 @@ test('record tools and help start collapsed; cancel and undo keep display prefer
 });
 test('settings opens the existing manager without a composer menu; edits stable IDs and never selects a model',async t=>{
  const {env,root,listeners}=await setup(t);const trigger=button(root,'整理模型');trigger.click();await settle(env.window,40);
- const panel=env.document.getElementById('dsh-model-organizer-panel');assert.equal(panel.hidden,false);assert.equal(panel.getAttribute('role'),'dialog');
+ const panel=env.document.getElementById('dsh-liao-models-panel');assert.equal(panel.hidden,false);assert.equal(panel.getAttribute('role'),'dialog');
  assert.equal(panel.querySelector('[data-act="manage-off"]').hidden,false);assert.equal(panel.querySelector('[data-act="manage"]').hidden,true);
  assert.equal(panel.querySelectorAll('[data-act="choose"]').length,2);
  const row=[...panel.querySelectorAll('[data-act="choose"]')].find(x=>x.dataset.key===key);assert.equal(row.dataset.key,key);row.click();
@@ -58,12 +58,12 @@ test('settings opens the existing manager without a composer menu; edits stable 
 test('missing catalog produces a useful message, and leaving settings closes its owned manager',async t=>{
  const first=await setup(t,{catalog:[]});button(first.root,'整理模型').click();await settle(first.env.window,30);
  assert.ok(first.root.querySelector('[role="status"]').textContent.includes('模型目录尚未就绪'));
- assert.equal(first.env.document.getElementById('dsh-model-organizer-panel').hidden,true);
+ assert.equal(first.env.document.getElementById('dsh-liao-models-panel').hidden,true);
  first.card.unmount();first.env.dispose();
  // Use a separate environment after cleanup, like navigating away and returning.
  const env=createPluginEnv({autoMount:false});env.ctx.get=()=>({catalog:{store:{getSnapshot:()=>({value:{groups}}),subscribe:()=>()=>{}}}});env.plugin.apply(env.ctx);
  const card=mountSettingsCard(env);await settle(env.window,40);button(card.container,'整理模型').click();await settle(env.window,30);
- const panel=env.document.getElementById('dsh-model-organizer-panel');assert.equal(panel.hidden,false);card.unmount();assert.equal(panel.hidden,true);env.dispose();
+ const panel=env.document.getElementById('dsh-liao-models-panel');assert.equal(panel.hidden,false);card.unmount();assert.equal(panel.hidden,true);env.dispose();
 });
 test('assembled settings semantic snapshot keeps all existing controls and clear boundaries',async t=>{
  const {env,root}=await setup(t);const sorter=root.querySelector('[role="combobox"][aria-label="模型排序"]');sorter.click();await settle(env.window,10);const actual={

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPluginEnv, mountSettingsCard, settle } from './load-client.mjs';
-const KEY='dsh-model-organizer-state-v1';
+const KEY='dsh-liao-models-state-v1';
 async function setup(t){const env=createPluginEnv();const card=mountSettingsCard(env);await settle(env.window,40);for(let n=0;n<40&&!card.container.querySelector('[role="combobox"]');n++)await settle(env.window,10);t.after(()=>{card.unmount();env.dispose();});return{env,card,root:card.container};}
 const combo=(root,label)=>[...root.querySelectorAll('[role="combobox"]')].find(n=>n.getAttribute('aria-label')===label);
 const menu=(env,trigger)=>env.document.getElementById(trigger.getAttribute('aria-controls'));
@@ -10,7 +10,7 @@ test('compact controls use segments or switches; remaining dropdowns are owned a
  const {env,root}=await setup(t);assert.equal(root.querySelector('select'),null);assert.equal(root.querySelectorAll('[role="combobox"]').length,2);
  assert.ok(root.querySelector('[data-setting="density"]'));assert.ok(root.querySelector('[aria-label="记住搜索与位置"][role="switch"]'));
  const sort=combo(root,'模型排序');sort.focus();sort.click();await settle(env.window,10);
- const list=menu(env,sort);assert.ok(list);assert.equal(root.contains(list),false);assert.equal(list.closest('[data-plugin]').dataset.plugin,'dsh-model-organizer');
+ const list=menu(env,sort);assert.ok(list);assert.equal(root.contains(list),false);assert.equal(list.closest('[data-plugin]').dataset.plugin,'dsh-liao-models');
  assert.equal(list.querySelector('[aria-selected="true"]').dataset.value,'default');list.querySelector('[data-value="name"]').click();await settle(env.window,10);
  assert.equal(sort.dataset.value,'name');assert.equal(JSON.parse(env.window.localStorage.getItem(KEY)).sortOrder,'name');assert.equal(env.document.activeElement,sort);assert.equal(env.document.querySelector('[role="listbox"]'),null);
 });

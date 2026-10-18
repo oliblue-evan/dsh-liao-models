@@ -51,7 +51,7 @@ test('纯逻辑区块不含 React / DOM（这是它能被直接求值的前提�
 test('客户端 bundle 采用 loader 工厂格式且 id 与包名一致', () => {
   const source = clientSource();
   assert.match(source, /window\.__ModuleLoader__\.load\(/);
-  assert.match(source, /id:\s*'dsh-model-organizer'/);
+  assert.match(source, /id:\s*'dsh-liao-models'/);
   assert.match(source, /factory\(require\)/);
 });
 

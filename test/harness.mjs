@@ -423,7 +423,7 @@ export function defaultSpec() {
 }
 
 /** 面板根 id（与插件一致）。 */
-export const PANEL_ID = 'dsh-model-organizer-panel';
+export const PANEL_ID = 'dsh-liao-models-panel';
 
 /** 取分组标题元素。 */
 export function headingOf(section) {

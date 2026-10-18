@@ -6,7 +6,7 @@ import { createPluginEnv, settle, mountSettingsCard } from './load-client.mjs';
 import { mountModelMenu, openPanelViaHeading } from './harness.mjs';
 import { attachKernelBehavior, realClick } from './kernel-behavior.mjs';
 const logic = clientScope(['modelSeries', 'modelMultiplier', 'orderEntries', 'normalizeState', 'resetUserData', 'matchesQuery']);
-const KEY = 'dsh-model-organizer-state-v1';
+const KEY = 'dsh-liao-models-state-v1';
 const entry = (name, label = name) => ({ key: JSON.stringify(['A',name]), name, raw: name, label });
 const spec = { providers: [
   { id: 'a', label: 'Alpha', models: [

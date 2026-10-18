@@ -4,7 +4,7 @@ import { createPluginEnv, settle } from './load-client.mjs';
 import { defaultSpec, mountModelMenu, openPanelViaHeading } from './harness.mjs';
 import { clientScope } from './extract-client.mjs';
 
-const STORAGE = 'dsh-model-organizer-state-v1';
+const STORAGE = 'dsh-liao-models-state-v1';
 const idKey = (provider, model) => JSON.stringify(['id', provider, model]);
 const labelKey = (provider, model) => JSON.stringify([provider, model]);
 const stored = (env) => JSON.parse(env.window.localStorage.getItem(STORAGE));

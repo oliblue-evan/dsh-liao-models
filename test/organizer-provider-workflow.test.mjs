@@ -4,7 +4,7 @@ import { createPluginEnv, settle, mountSettingsCard } from './load-client.mjs';
 import { defaultSpec, mountModelMenu, openPanelViaHeading } from './harness.mjs';
 import { attachKernelBehavior, realClick } from './kernel-behavior.mjs';
 
-const STORAGE = 'dsh-model-organizer-state-v1';
+const STORAGE = 'dsh-liao-models-state-v1';
 const type = (env, node, value) => { node.value = value; node.dispatchEvent(new env.window.Event('input', { bubbles: true })); };
 const press = (env, node, key) => node.dispatchEvent(new env.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 async function setup() {

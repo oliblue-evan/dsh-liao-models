@@ -1,4 +1,4 @@
-# dsh-model-organizer
+# dsh-liao-models
 
 **模型菜单别再一条道排到底。** 给 DeepSeek Harness（DSH）的模型选择菜单加上**整理**能力：
 按来源折叠、悬浮/点击滑出模型面板，再把常用模型**置顶**、**最近**用过的排前面，
@@ -109,7 +109,7 @@
 
 插件用属性和 CSS 隐藏原生模型行，保留所有 React 节点与真实选择按钮。
 
-### 1b. 设置页（插件管理 → dsh-model-organizer）
+### 1b. 设置页（插件管理 → dsh-liao-models）
 
 常驻偏好收进官方的 bundle 设置槽位（`plugins.bundle.config`，与 dsh-usage-pill 同款做法），
 打开 **插件管理页 → 本插件** 即可看到：
@@ -159,13 +159,13 @@
 从 GitHub 安装（推荐，依赖 `dsh.bundle` 自声明，无需手改 `cordis.patch.yml`）：
 
 ```bash
-dsh plugin --profile <profile> add github:oliblue-evan/dsh-model-organizer
+dsh plugin --profile <profile> add github:oliblue-evan/dsh-liao-models
 ```
 
 或在 DSH 里用 `plugin_manager`：
 
 ```text
-plugin_manager(action: "install_bundle", target: "github:oliblue-evan/dsh-model-organizer")
+plugin_manager(action: "install_bundle", target: "github:oliblue-evan/dsh-liao-models")
 ```
 
 本地开发（改代码即时生效）：
@@ -185,7 +185,7 @@ dsh plugin --profile <profile> add /path/to/your/model-organizer
 ### 卸载 / 回滚
 
 ```bash
-dsh plugin --profile desktop remove dsh-model-organizer
+dsh plugin --profile desktop remove dsh-liao-models
 ```
 
 插件在 `apply` 里用 `ctx.effect` 托管全部资源，卸载时会摘净监听器、定时器、
@@ -347,8 +347,8 @@ node --test test/*.test.mjs
 | 证据 | 观察结果 |
 |---|---|
 | 宿主重启时间 | `2026-10-12 16:23:18`（晚于插件安装与最后一次改动 16:21:17） |
-| 重启后的 combo 请求 | 16:23:29 拉取的 15-bundle combo 中，`dsh-model-organizer/client.js` 位于 **idx 3**，与 `dsh-usage-pill`、`dsh-our-free-model` 并列 |
-| 是否真的执行过 | **真实浏览器 localStorage** 里已出现本插件的状态键 `dsh-model-organizer-state-v1`，内容为 v2 schema（`{"version":2,"mode":"hover",…}`） |
+| 重启后的 combo 请求 | 16:23:29 拉取的 15-bundle combo 中，`dsh-liao-models/client.js` 位于 **idx 3**，与 `dsh-usage-pill`、`dsh-our-free-model` 并列 |
+| 是否真的执行过 | **真实浏览器 localStorage** 里已出现本插件的状态键 `dsh-liao-models-state-v1`，内容为 v2 schema（`{"version":2,"mode":"hover",…}`） |
 | 是否造成崩溃 | 宿主进程存活，无 Crashpad 记录 |
 | 自动化测试 | **114/114 通过** |
 

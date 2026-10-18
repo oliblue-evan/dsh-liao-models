@@ -18,7 +18,7 @@ import { attachKernelBehavior, realClick } from './kernel-behavior.mjs';
 const moKey = (provider, model) => JSON.stringify([provider, model]);
 
 
-const PANEL = 'dsh-model-organizer-panel';
+const PANEL = 'dsh-liao-models-panel';
 
 /** 建环境 + 挂菜单 + 接上内核行为。 */
 async function setupWithKernel() {
@@ -118,7 +118,7 @@ test('★ 关键：管理视图里点 ★ / 🚫 不关菜单（真事件）', a
   const fav = panelOf(env).querySelector('[data-act="fav"]');
   realClick(env.window, fav);
   assert.equal(kernel.isOpen(), true, '点 ★ 不该关菜单（closedBy=' + kernel.closedBy() + '）');
-  const state = JSON.parse(env.window.localStorage.getItem('dsh-model-organizer-state-v1'));
+  const state = JSON.parse(env.window.localStorage.getItem('dsh-liao-models-state-v1'));
   assert.equal(state.favorites.length, 1, '置顶应生效');
   kernel.detach();
   env.dispose();
@@ -135,7 +135,7 @@ test('★ 关键：别名输入框能聚焦并保存（真事件）', async () =
   assert.equal(env.document.activeElement, aliasInput, '别名输入框应能聚焦');
   aliasInput.value = '短名';
   aliasInput.dispatchEvent(new env.window.Event('input', { bubbles: true }));
-  const state = JSON.parse(env.window.localStorage.getItem('dsh-model-organizer-state-v1'));
+  const state = JSON.parse(env.window.localStorage.getItem('dsh-liao-models-state-v1'));
   assert.equal(Object.values(state.aliases)[0], '短名', '别名应保存');
   assert.equal(kernel.isOpen(), true, '改名过程菜单不该关');
   kernel.detach();

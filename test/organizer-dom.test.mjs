@@ -68,7 +68,7 @@ test('★ 独立回归：/model 命令弹窗完全不被污染', async () => {
     assert.equal(heading.getAttribute('data-mo-current'), null);
   }
   // 样式表里每条作用域规则都要求 [data-mo-scope="1"]，而弹窗上没有任何元素带这个属性
-  const css = env.document.getElementById('dsh-model-organizer-style').textContent;
+  const css = env.document.getElementById('dsh-liao-models-style').textContent;
   for (const rule of css.split('\n')) {
     if (rule.includes('section[role="group"]')) {
       assert.ok(rule.includes('[data-mo-scope="1"]'), '分组样式必须带作用域前缀：' + rule);
@@ -173,7 +173,7 @@ test('注入的样式挂在 head，且按 id 幂等（重复 apply 不叠加）'
   const env = createPluginEnv();
   mountModelMenu(env.document, defaultSpec());
   await settle(env.window);
-  const first = env.document.querySelectorAll('#dsh-model-organizer-style');
+  const first = env.document.querySelectorAll('#dsh-liao-models-style');
   assert.equal(first.length, 1);
   const css = first[0].textContent;
   assert.ok(css.includes('[data-mo-scope="1"]'), '样式应带作用域');
@@ -185,21 +185,21 @@ test('找不到模型菜单时静默不动，不报错也不留下痕迹', async
   const env = createPluginEnv();
   await settle(env.window);
   assert.equal(env.document.querySelectorAll('[' + SCOPE + ']').length, 0);
-  assert.equal(env.document.getElementById('dsh-model-organizer-panel').hidden, true);
+  assert.equal(env.document.getElementById('dsh-liao-models-panel').hidden, true);
   // 空文档里也不该抛错
   env.dispose();
 });
 
 test('dispose 摘净监听器与自建节点，可安全重复调用', async () => {
   const { env, view } = await setup();
-  const panel = env.document.getElementById('dsh-model-organizer-panel');
+  const panel = env.document.getElementById('dsh-liao-models-panel');
   assert.ok(panel, '面板应已挂到 body');
   assert.equal(view.menu.getAttribute(SCOPE), '1');
 
   env.dispose();
 
-  assert.equal(env.document.getElementById('dsh-model-organizer-panel'), null, '面板应被移除');
-  assert.equal(env.document.getElementById('dsh-model-organizer-style'), null, '样式应被移除');
+  assert.equal(env.document.getElementById('dsh-liao-models-panel'), null, '面板应被移除');
+  assert.equal(env.document.getElementById('dsh-liao-models-style'), null, '样式应被移除');
   assert.equal(view.menu.getAttribute(SCOPE), null, '作用域标记应被还原');
   for (const section of view.sections) {
     assert.equal(section.getAttribute('data-mo-collapsed'), null, '折叠标记应被还原');
@@ -259,7 +259,7 @@ test('★ 回归：React 替换整个分组节点后，标记与折叠都能自�
 test('★ 不隐藏内核自带的搜索框（那是宿主功能，插件不该动）', async () => {
   const { env, view } = await setup();
   assert.ok(view.searchInput, '夹具里应有内核搜索框（模型数 > 4）');
-  const css = env.document.getElementById('dsh-model-organizer-style').textContent;
+  const css = env.document.getElementById('dsh-liao-models-style').textContent;
   // 早期版本用 .searchRow 隐藏它 —— 既匹配不上（哈希类名）又越界
   assert.equal(/searchRow/.test(css), false, '注入的样式不该提及内核的搜索行');
   assert.equal(/role="searchbox"/.test(css), false, '也不该按 role 隐藏搜索框');

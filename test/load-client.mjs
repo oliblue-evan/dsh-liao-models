@@ -48,7 +48,7 @@ export function evaluateClient(window) {
   );
   run(window, document, window.MutationObserver, window.setTimeout.bind(window), window.clearTimeout.bind(window));
   if (captured === null) throw new Error('client.js 没有调用 window.__ModuleLoader__.load');
-  if (captured.id !== 'dsh-model-organizer') {
+  if (captured.id !== 'dsh-liao-models') {
     throw new Error('loader id 与包名不一致：' + captured.id);
   }
   // 宿主给工厂的 require：浏览器模块表里有 react / react-dom（设置卡用）。
@@ -56,7 +56,7 @@ export function evaluateClient(window) {
   const require = function (specifier) {
     if (specifier === 'react') return React;
     if (specifier === 'react-dom') return ReactDOM;
-    throw new Error('dsh-model-organizer 不应 require：' + specifier);
+    throw new Error('dsh-liao-models 不应 require：' + specifier);
   };
   return captured.factory(require);
 }
@@ -139,7 +139,7 @@ export function createPluginEnv(options = {}) {
  * @returns {{ container:object, unmount:()=>void }} 容器与卸载函数。
  */
 export function mountSettingsCard(env, props = { view: 'page' }) {
-  const entry = env.registrations.get('plugins.bundle.config|dsh-model-organizer');
+  const entry = env.registrations.get('plugins.bundle.config|dsh-liao-models');
   if (!entry) throw new Error('设置卡没有注册进 plugins.bundle.config');
   globalThis.window = env.window;
   globalThis.document = env.document;

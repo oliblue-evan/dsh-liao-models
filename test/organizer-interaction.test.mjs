@@ -12,7 +12,7 @@ import { mountModelMenu, defaultSpec } from './harness.mjs';
 const moKey = (provider, model) => JSON.stringify([provider, model]);
 
 
-const PANEL = 'dsh-model-organizer-panel';
+const PANEL = 'dsh-liao-models-panel';
 const SCOPE = 'data-mo-scope';
 
 /** 建环境 + 挂菜单 + 扫描完成。 */
@@ -114,7 +114,7 @@ test('置顶：★ 把模型放进「置顶」区，取消后移出', async () =
   // 用结构化断言而不是子串匹配：键本身是 JSON 字符串，存进 JSON 后引号会被转义，
   // 直接 includes() 原始键会失败（那是断言写法问题，不是插件的问题）。
   assert.deepEqual(
-    JSON.parse(env.window.localStorage.getItem('dsh-model-organizer-state-v1')).favorites,
+    JSON.parse(env.window.localStorage.getItem('dsh-liao-models-state-v1')).favorites,
     [moKey('DeepSeek', 'DeepSeek-V4-Pro')],
     '置顶应被持久化'
   );
@@ -146,18 +146,18 @@ test('置顶持久化：重新打开菜单后仍在（localStorage 往返）', a
   const fav = Array.from(panelOf(env1).querySelectorAll('[data-act="fav"]'))
     .filter((b) => b.getAttribute('data-key') === moKey('Natsuki 网关','grok-latest'))[0];
   fav.click();
-  const saved = env1.window.localStorage.getItem('dsh-model-organizer-state-v1');
+  const saved = env1.window.localStorage.getItem('dsh-liao-models-state-v1');
   env1.dispose();
 
   // 新环境共用同一个 storage 内容（模拟重开 GUI）
   const env2 = createPluginEnv();
-  env2.window.localStorage.setItem('dsh-model-organizer-state-v1', saved);
+  env2.window.localStorage.setItem('dsh-liao-models-state-v1', saved);
   const view2 = mountModelMenu(env2.document, defaultSpec());
   await settle(env2.window);
   fire(env2.window, view2.sections[1].querySelector('[data-menu-group-heading]'), 'mouseover');
   panelOf(env2).querySelector('[data-act="close"]').click();
   // 打开总览视图：点击当前来源后再切到 provider=null 不可得，直接检查存储 + 渲染
-  const state = JSON.parse(env2.window.localStorage.getItem('dsh-model-organizer-state-v1'));
+  const state = JSON.parse(env2.window.localStorage.getItem('dsh-liao-models-state-v1'));
   assert.deepEqual(state.favorites, [moKey('Natsuki 网关','grok-latest')], '置顶应跨环境保留');
   env2.dispose();
 });
@@ -175,7 +175,7 @@ test('最近：选择后进入「最近」区并按最近优先排序', async ()
   fire(env.window, view.sections[1].querySelector('[data-menu-group-heading]'), 'mouseover');
   choose(moKey('Natsuki 网关','grok-latest'));
 
-  const raw = env.window.localStorage.getItem('dsh-model-organizer-state-v1');
+  const raw = env.window.localStorage.getItem('dsh-liao-models-state-v1');
   const state = JSON.parse(raw);
   assert.deepEqual(state.recents.slice(0, 2), [moKey('Natsuki 网关','grok-latest'), moKey('Natsuki 网关','grok-4.7')], '最近的应排最前');
   env.dispose();
@@ -238,7 +238,7 @@ test('别名：显示名替换为别名并持久化', async () => {
   aliasInput.value = 'Pro 短名';
   aliasInput.dispatchEvent(new env.window.Event('input', { bubbles: true }));
 
-  const state = JSON.parse(env.window.localStorage.getItem('dsh-model-organizer-state-v1'));
+  const state = JSON.parse(env.window.localStorage.getItem('dsh-liao-models-state-v1'));
   assert.equal(state.aliases[moKey('DeepSeek','DeepSeek-V4-Pro')], 'Pro 短名', '别名应持久化');
   // 行标签应即时更新
   const row = Array.from(panelOf(env).querySelectorAll('[data-act="choose"]'))
@@ -259,7 +259,7 @@ test('隐藏：🚫 把模型从列表移除，且能从管理模式恢复', asy
   // 原生按钮应被标记隐藏（CSS 据此 display:none）
   const hiddenButton = view.items.filter((b) => b.getAttribute('title') === 'DeepSeek-V4-Flash-Vision-Exp')[0];
   assert.equal(hiddenButton.getAttribute('data-mo-hidden'), '1', '原生按钮应被标记隐藏');
-  const state = JSON.parse(env.window.localStorage.getItem('dsh-model-organizer-state-v1'));
+  const state = JSON.parse(env.window.localStorage.getItem('dsh-liao-models-state-v1'));
   assert.deepEqual(state.hidden, [moKey('DeepSeek','DeepSeek-V4-Flash-Vision-Exp')]);
 
   // 管理模式应能看到「已隐藏」并可恢复

@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { createPluginEnv, settle } from './load-client.mjs';
 import { mountModelMenu, defaultSpec } from './harness.mjs';
 
-const PANEL = 'dsh-model-organizer-panel';
+const PANEL = 'dsh-liao-models-panel';
 
 /**
  * 给 add/removeEventListener 打桩，返回「未摘除」的监听器账本。
@@ -173,14 +173,14 @@ test('★ dispose 摘净：自建节点、样式、标记属性全部还原', as
 
   // 前置条件：确实加过东西
   assert.ok(env.document.getElementById(PANEL), '面板应已挂载');
-  assert.ok(env.document.getElementById('dsh-model-organizer-style'), '样式应已注入');
+  assert.ok(env.document.getElementById('dsh-liao-models-style'), '样式应已注入');
   assert.equal(view.menu.getAttribute('data-mo-scope'), '1');
 
   env.dispose();
   await settle(env.window, 200);
 
   assert.equal(env.document.getElementById(PANEL), null, '面板应被移除');
-  assert.equal(env.document.getElementById('dsh-model-organizer-style'), null, '样式应被移除');
+  assert.equal(env.document.getElementById('dsh-liao-models-style'), null, '样式应被移除');
   assert.equal(env.document.querySelectorAll('[data-mo-scope]').length, 0, '作用域标记应清空');
   assert.equal(env.document.querySelectorAll('[data-mo-collapsed]').length, 0, '折叠标记应清空');
   assert.equal(env.document.querySelectorAll('[data-mo-hidden]').length, 0, '隐藏标记应清空');

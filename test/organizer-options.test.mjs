@@ -4,7 +4,7 @@ import { clientScope } from './extract-client.mjs';
 import { createPluginEnv, mountSettingsCard, settle, chooseSetting } from './load-client.mjs';
 import { mountModelMenu, openPanelViaHeading } from './harness.mjs';
 const L=clientScope(['normalizeState','resetUserData','makePreferenceBackup','readPreferenceBackup','mergePreferenceBackup','effectiveSort']);
-const KEY='dsh-model-organizer-state-v1';
+const KEY='dsh-liao-models-state-v1';
 const key=(p,m)=>JSON.stringify(['id',p,m]);
 const spec={providers:[{id:'A',label:'A',models:[{id:'deepseek-pro',name:'DeepSeek Pro · x0.5'},{id:'deepseek-flash',name:'DeepSeek Flash · x0.1'}]},{id:'B',label:'B',models:[{id:'gpt-2',name:'GPT 2'},{id:'gpt-1',name:'GPT 1'}]}]};
 const state=env=>JSON.parse(env.window.localStorage.getItem(KEY));
@@ -60,7 +60,7 @@ test('click opening and delayed hover cancel on pointer exit and plugin disposal
  heading.click();assert.equal(panel.hidden,false);panel.querySelector('[data-act="close"]').click();await change(env,root,'厂商展开方式','hover');await change(env,root,'悬停延迟',150);await settle(env.window,30);
  heading.dispatchEvent(new env.window.MouseEvent('mouseover',{bubbles:true}));assert.equal(panel.hidden,true);heading.dispatchEvent(new env.window.MouseEvent('mouseout',{bubbles:true,relatedTarget:env.document.body}));await settle(env.window,180);assert.equal(panel.hidden,true);
  heading.dispatchEvent(new env.window.MouseEvent('mouseover',{bubbles:true}));await settle(env.window,180);assert.equal(panel.hidden,false);
- panel.querySelector('[data-act="close"]').click();heading.dispatchEvent(new env.window.MouseEvent('mouseover',{bubbles:true}));env.dispose();await settle(env.window,180);assert.equal(env.document.getElementById('dsh-model-organizer-panel'),null);
+ panel.querySelector('[data-act="close"]').click();heading.dispatchEvent(new env.window.MouseEvent('mouseover',{bubbles:true}));env.dispose();await settle(env.window,180);assert.equal(env.document.getElementById('dsh-liao-models-panel'),null);
 });
 test('overview sections and recent display cap never truncate saved records',async t=>{
  const recents=Array.from({length:12},(_,i)=>key('A',`missing-${i}`));recents.splice(0,0,key('A','deepseek-pro'),key('A','deepseek-flash'));
@@ -73,7 +73,7 @@ test('backup validation, merging and replacing preserve local conflicts as adver
  const imported=L.readPreferenceBackup(JSON.stringify(L.makePreferenceBackup({fontSize:12,favorites:[key('A','two'),key('B','three')],hidden:[key('A','one')],aliases:{[key('A','one')]:'导入'}})));
  const merged=L.mergePreferenceBackup(local,imported,'merge');assert.equal(merged.fontSize,14);assert.equal(merged.panelWidth,440);assert.equal(merged.aliases[key('A','one')],'本机');assert.deepEqual(merged.hidden,[key('A','two')]);assert.ok(merged.favorites.includes(key('B','three')));
  assert.deepEqual(L.mergePreferenceBackup(local,imported,'replace'),imported);
- for(const text of ['null','{}',JSON.stringify({format:'dsh-model-organizer',version:2,state:local}),JSON.stringify({...L.makePreferenceBackup(local),state:{...local,hidden:['garbage']}}),'x'.repeat(1024*1024+1)])assert.throws(()=>L.readPreferenceBackup(text));
+ for(const text of ['null','{}',JSON.stringify({format:'dsh-liao-models',version:2,state:local}),JSON.stringify({...L.makePreferenceBackup(local),state:{...local,hidden:['garbage']}}),'x'.repeat(1024*1024+1)])assert.throws(()=>L.readPreferenceBackup(text));
 });
 test('import requires preview and confirmation, can be undone, and subsequent edits invalidate undo',async t=>{
  const {env,root}=await setup(t,{fontSize:14});const before=state(env);const file=root.querySelector('input[type="file"]');
@@ -87,10 +87,10 @@ test('export uses a versioned sanitized backup and revokes its download URL',asy
  const {env,root}=await setup(t,{aliases:{[key('A','deepseek-pro')]:'My model'}});let blob,revoked=false,download;
  env.window.URL.createObjectURL=value=>{blob=value;return 'blob:owned-backup';};env.window.URL.revokeObjectURL=url=>{assert.equal(url,'blob:owned-backup');revoked=true;};
  const proto=env.window.HTMLAnchorElement.prototype;const original=proto.click;proto.click=function(){download=this.download;};t.after(()=>{proto.click=original;});
- btn(root,'导出偏好').click();await settle(env.window,30);assert.ok(blob);assert.equal(download,'dsh-model-organizer-preferences.json');assert.equal(root.querySelectorAll('a').length,0);
+ btn(root,'导出偏好').click();await settle(env.window,30);assert.ok(blob);assert.equal(download,'dsh-liao-models-preferences.json');assert.equal(root.querySelectorAll('a').length,0);
  assert.ok(root.querySelector('[role="status"]').textContent.includes('已生成'));
  const reader=new env.window.FileReader();const text=await new Promise((resolve,reject)=>{reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsText(blob);});
- const saved=L.readPreferenceBackup(text);assert.deepEqual(saved,state(env));assert.equal(JSON.parse(text).format,'dsh-model-organizer');await settle(env.window,1020);assert.equal(revoked,true);
+ const saved=L.readPreferenceBackup(text);assert.deepEqual(saved,state(env));assert.equal(JSON.parse(text).format,'dsh-liao-models');await settle(env.window,1020);assert.equal(revoked,true);
 });
 test('invalid and oversized imports never change the current preferences',async t=>{
  const {env,root}=await setup(t);const before=state(env);const file=root.querySelector('input[type="file"]');
