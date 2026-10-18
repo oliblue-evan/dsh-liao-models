@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "policy": "dsh-plugin-naming/v1",
+  "plugin": {
+    "namespace": "liao",
+    "name": "models",
+    "coordinate": "liao/models",
+    "packageName": "dsh-liao-models"
+  },
+  "names": {
+    "pluginNames": [
+      "dsh-liao-models"
+    ],
+    "loaderIds": [
+      "dsh-liao-models"
+    ],
+    "services": [],
+    "tools": [],
+    "commands": [],
+    "skills": [],
+    "skillProviders": [],
+    "events": [],
+    "settingsNamespaces": [
+      "dsh-liao-models"
+    ],
+    "routes": []
+  }
+}

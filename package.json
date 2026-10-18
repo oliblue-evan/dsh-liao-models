@@ -1,8 +1,9 @@
 {
   "name": "dsh-liao-models",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "icon": "assets/icon.svg",
   "type": "module",
+  "main": "index.js",
   "description": "按厂商与模型系列浏览，支持折叠、全局搜索、名称/倍率排序、置顶、别名与隐藏。 | Group models by provider and family, search globally, sort by name or multiplier, and manage pins, aliases and visibility.",
   "exports": {
     ".": "./index.js",
@@ -18,7 +19,8 @@
     "locale",
     "assets",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "dsh-plugin.naming.json"
   ],
   "license": "MIT",
   "repository": {
@@ -42,11 +44,20 @@
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-locale": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-model-selection": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": ">=0.2.1-rc.2 <0.3.0-0",
     "jsdom": "^30.1.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-locale": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-model-selection": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": ">=0.2.1-rc.2 <0.3.0-0"
+  },
   "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0-0",
     "node": ">=18"
   }
 }
