@@ -26,7 +26,7 @@ test('真实 rc.2 加载器清理其他插件时，菜单和设置页样式保�
   skip: existsSync(asar) ? false : 'Set DSH_ASAR to the exact rc.2 desktop app.asar',
 }, async () => {
   const root = 'dsh/node_modules/@deepseek-ai/dsh-client-modules/';
-  assert.equal(JSON.parse(readAsar(root + 'package.json')).version, '0.2.0-rc.2');
+  assert.equal(JSON.parse(readAsar(root + 'package.json')).version, '0.2.1-rc.2');
   const prior = Object.fromEntries(['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const env = createPluginEnv();
